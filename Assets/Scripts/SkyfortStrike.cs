@@ -1,14 +1,18 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
+using UnityEngine.UIElements;
 using static SkyfortModels;
 using Random = UnityEngine.Random;
 
 // Skyfort Strike: an isometric, forward-scrolling altitude shooter. The fighter flies on its own; you steer
-// left/right, climb/dive to clear walls and force fields, shoot ground targets at their height, keep your
-// fuel up by destroying fuel tanks, and face the Warden guardian at the end of each level.
-// Everything (models, level, audio, HUD) is generated at runtime by this component.
+// left/right, climb/dive around pyramids, castles and force fields, shoot ground targets at their height, keep
+// your fuel up by destroying fuel tanks, and face the Warden guardian at the end of each level.
+//
+// The camera, lights, fighter, Warden, effects and HUD live in the scene, and the enemies and projectiles are
+// prefabs; this component only references them (see the Inspector). Only the level itself is streamed in at
+// runtime, chunk by chunk, under the "Level" object. Rebuild those scene objects and prefabs with
+// Skyfort > Rebuild Scene and Prefabs (Assets/Editor/SkyfortSceneBuilder.cs).
 public sealed class SkyfortStrike : MonoBehaviour
 {
     private const float CorridorHalfWidth = 6.2f;
@@ -83,28 +87,39 @@ public sealed class SkyfortStrike : MonoBehaviour
     private readonly Queue<ChunkKind> plan = new();
     private readonly SkyfortHudState hud = new();
 
-    private Transform templates;
-    private GameObject turretTemplate;
-    private GameObject fuelTemplate;
-    private GameObject radarTemplate;
-    private GameObject droneTemplate;
-    private GameObject laserTemplate;
-    private GameObject boltTemplate;
-    private Material fieldMaterial;
+    [Header("Scene objects")]
+    [SerializeField] private Camera view;
+    [SerializeField] private Rigidbody shipBody;
+    [SerializeField] private Transform shipModel;
+    [SerializeField] private Transform shipShadow;
+    [SerializeField] private ParticleSystem engineFx;
+    [SerializeField] private ParticleSystem explosionFx;
+    [SerializeField] private Light flash;
+    [SerializeField] private UIDocument hudDocument;
+    [SerializeField] private AudioSource sfx;
+    [SerializeField] private AudioSource engine;
+    [Tooltip("Parent for the level chunks streamed in at runtime.")]
+    [SerializeField] private Transform levelRoot;
+    [Tooltip("Parent for the pooled lasers and enemy bolts.")]
+    [SerializeField] private Transform poolRoot;
 
-    private Camera view;
+    [Header("The Warden (boss)")]
+    [SerializeField] private Transform boss;
+    [SerializeField] private Transform bossLeftCannon;
+    [SerializeField] private Transform bossRightCannon;
+    [SerializeField] private Renderer bossCore;
+
+    [Header("Prefabs")]
+    [SerializeField] private GameObject turretPrefab;
+    [SerializeField] private GameObject fuelTankPrefab;
+    [SerializeField] private GameObject radarPrefab;
+    [SerializeField] private GameObject dronePrefab;
+    [SerializeField] private GameObject laserPrefab;
+    [SerializeField] private GameObject boltPrefab;
+    [SerializeField] private Material forceFieldMaterial;
+
     private Transform ship;
-    private Transform shipModel;
-    private Transform shipShadow;
-    private Rigidbody shipBody;
-    private ParticleSystem explosionFx;
-    private ParticleSystem engineFx;
-    private Light flash;
-
-    private Transform boss;
-    private Transform bossLeftCannon;
-    private Transform bossRightCannon;
-    private Renderer bossCore;
+    private Material fieldMaterial;
     private float bossDistance;
     private float bossEndsAt;
     private float bossNextFire;
@@ -116,8 +131,6 @@ public sealed class SkyfortStrike : MonoBehaviour
     private float bossTriggerZ;
 
     private SkyfortSounds sounds;
-    private AudioSource sfx;
-    private AudioSource engine;
 
     private Phase phase = Phase.Loading;
     private int runId;
@@ -141,12 +154,64 @@ public sealed class SkyfortStrike : MonoBehaviour
     // Game logic reads the physics position; the transform is interpolated for smooth visuals only.
     private Vector3 ShipPosition => shipBody.position;
 
+    private void Awake()
+    {
+        ship = shipBody != null ? shipBody.transform : null;
+        // Animate a copy so play mode never edits the material asset itself.
+        fieldMaterial = forceFieldMaterial != null ? new Material(forceFieldMaterial) : null;
+        QualitySettings.shadowDistance = 90f;
+    }
+
+    private bool HasSceneReferences()
+    {
+        var missing = new List<string>();
+        void Check(UnityEngine.Object value, string name)
+        {
+            if (value == null) missing.Add(name);
+        }
+
+        Check(view, nameof(view));
+        Check(shipBody, nameof(shipBody));
+        Check(shipModel, nameof(shipModel));
+        Check(shipShadow, nameof(shipShadow));
+        Check(engineFx, nameof(engineFx));
+        Check(explosionFx, nameof(explosionFx));
+        Check(flash, nameof(flash));
+        Check(hudDocument, nameof(hudDocument));
+        Check(sfx, nameof(sfx));
+        Check(engine, nameof(engine));
+        Check(levelRoot, nameof(levelRoot));
+        Check(poolRoot, nameof(poolRoot));
+        Check(boss, nameof(boss));
+        Check(bossLeftCannon, nameof(bossLeftCannon));
+        Check(bossRightCannon, nameof(bossRightCannon));
+        Check(bossCore, nameof(bossCore));
+        Check(turretPrefab, nameof(turretPrefab));
+        Check(fuelTankPrefab, nameof(fuelTankPrefab));
+        Check(radarPrefab, nameof(radarPrefab));
+        Check(dronePrefab, nameof(dronePrefab));
+        Check(laserPrefab, nameof(laserPrefab));
+        Check(boltPrefab, nameof(boltPrefab));
+        Check(forceFieldMaterial, nameof(forceFieldMaterial));
+        if (missing.Count == 0) return true;
+
+        Debug.LogError($"SkyfortStrike is missing scene references ({string.Join(", ", missing)}). " +
+                       "Run Skyfort > Rebuild Scene and Prefabs to regenerate them.", this);
+        return false;
+    }
+
     private async void Start()
     {
+        if (!HasSceneReferences())
+        {
+            enabled = false;
+            return;
+        }
+
         Application.targetFrameRate = 60;
         highScore = PlayerPrefs.GetInt(HighScoreKey, 0);
-        BuildWorld();
-        SkyfortHud.Create(transform, hud);
+        boss.gameObject.SetActive(false);
+        SkyfortHud.Build(hudDocument, hud);
         RefreshHud();
         hud.Banner = "SKYFORT STRIKE";
         hud.SubBanner = "Spinning up...";
@@ -158,7 +223,8 @@ public sealed class SkyfortStrike : MonoBehaviour
             var audioTask = SkyfortAudio.LoadAsync(token);
             await PrewarmPoolsAsync();
             sounds = await audioTask;
-            BuildAudio();
+            engine.clip = sounds.Engine;
+            engine.Play();
             NewGame();
         }
         catch (OperationCanceledException)
@@ -752,8 +818,8 @@ public sealed class SkyfortStrike : MonoBehaviour
     // Unity 6 Object.InstantiateAsync: clone the pool templates in one batched asynchronous operation.
     private async Awaitable PrewarmPoolsAsync()
     {
-        var laserOp = InstantiateAsync(laserTemplate, LaserPoolSize, templates.parent);
-        var boltOp = InstantiateAsync(boltTemplate, BoltPoolSize, templates.parent);
+        var laserOp = InstantiateAsync(laserPrefab, LaserPoolSize, poolRoot);
+        var boltOp = InstantiateAsync(boltPrefab, BoltPoolSize, poolRoot);
         await laserOp;
         await boltOp;
         Fill(lasers, laserOp.Result, "Laser");
@@ -1163,7 +1229,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var chunk = new Chunk
         {
-            Root = Group($"Chunk {kind} @ {z0:0}", null, new Vector3(0f, 0f, z0)),
+            Root = Group($"Chunk {kind} @ {z0:0}", levelRoot, new Vector3(0f, 0f, z0)),
             StartZ = z0,
             Space = kind is ChunkKind.Space or ChunkKind.Drift
         };
@@ -1190,7 +1256,7 @@ public sealed class SkyfortStrike : MonoBehaviour
             case ChunkKind.Exit:
                 BuildPyramid(chunk, -3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
                 BuildPyramid(chunk, 3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
-                AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 4f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+                AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 4f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Pyramids:
                 for (var i = 0; i < 2 + Mathf.Min(level, 2) / 2; i++)
@@ -1220,7 +1286,7 @@ public sealed class SkyfortStrike : MonoBehaviour
                 BuildTower(chunk, towerX + Random.Range(3.5f, 6f), z0 + 10f, 0.8f, Random.Range(5f, 5.9f));
                 if (Random.value < 0.6f)
                 {
-                    AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5.5f, 5.5f), wallHeight + 0.12f, z0 + 10f + 0.2f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 200);
+                    AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-5.5f, 5.5f), wallHeight + 0.12f, z0 + 10f + 0.2f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 200);
                 }
 
                 break;
@@ -1235,28 +1301,28 @@ public sealed class SkyfortStrike : MonoBehaviour
                 for (var i = 0; i < 2 + Mathf.Min(level, 3); i++)
                 {
                     var x = Mathf.Lerp(-5f, 5f, (i + 0.5f) / (2 + Mathf.Min(level, 3)));
-                    AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(x, 0f, z0 + 5f + (i % 2) * 6f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+                    AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(x, 0f, z0 + 5f + (i % 2) * 6f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 }
 
                 break;
             case ChunkKind.FuelDepot:
-                AddTarget(chunk, TargetKind.FuelTank, fuelTemplate, new Vector3(Random.Range(-4.5f, -1f), 0f, z0 + 6f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
-                AddTarget(chunk, TargetKind.FuelTank, fuelTemplate, new Vector3(Random.Range(1f, 4.5f), 0f, z0 + 12f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
+                AddTarget(chunk, TargetKind.FuelTank, fuelTankPrefab, new Vector3(Random.Range(-4.5f, -1f), 0f, z0 + 6f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
+                AddTarget(chunk, TargetKind.FuelTank, fuelTankPrefab, new Vector3(Random.Range(1f, 4.5f), 0f, z0 + 12f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
                 break;
             case ChunkKind.RadarSite:
-                AddTarget(chunk, TargetKind.Radar, radarTemplate, new Vector3(Random.Range(-4f, 4f), 0f, mid), new Vector3(0.9f, 1.3f, 0.9f), 1.3f, 2, 1000);
-                AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 3f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+                AddTarget(chunk, TargetKind.Radar, radarPrefab, new Vector3(Random.Range(-4f, 4f), 0f, mid), new Vector3(0.9f, 1.3f, 0.9f), 1.3f, 2, 1000);
+                AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 3f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Mixed:
                 BuildPyramid(chunk, Random.Range(-4f, 4f), z0 + 5f, 4f, Random.Range(3f, 5f));
-                AddTarget(chunk, TargetKind.FuelTank, fuelTemplate, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 10f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
-                AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 15f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+                AddTarget(chunk, TargetKind.FuelTank, fuelTankPrefab, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 10f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
+                AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 15f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Space:
                 for (var i = 0; i < 2 + Mathf.Min(level, 2); i++)
                 {
                     var origin = new Vector3(Random.Range(-4f, 4f), Random.Range(1.5f, 5.5f), z0 + 8f + i * 5f);
-                    AddTarget(chunk, TargetKind.Drone, droneTemplate, origin, new Vector3(0.9f, 0.4f, 0.7f), 0f, 1, 250);
+                    AddTarget(chunk, TargetKind.Drone, dronePrefab, origin, new Vector3(0.9f, 0.4f, 0.7f), 0f, 1, 250);
                 }
 
                 break;
@@ -1351,7 +1417,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         }
 
         // A turret guards the keep roof; dive to just above the battlements to hit it.
-        AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(x, height + 0.1f, z), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 250);
+        AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(x, height + 0.1f, z), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 250);
     }
 
     private void BuildField(Chunk chunk, float z, float bottom, float top)
@@ -1454,249 +1520,5 @@ public sealed class SkyfortStrike : MonoBehaviour
             flash.intensity = 8f;
             if (sounds != null) sfx.PlayOneShot(sounds.Explosion, 0.9f);
         }
-    }
-
-    // ---------------------------------------------------------------- World construction
-
-    private void BuildWorld()
-    {
-        var cameraObject = new GameObject("Isometric Camera") { tag = "MainCamera" };
-        view = cameraObject.AddComponent<Camera>();
-        view.orthographic = true;
-        view.orthographicSize = 9.5f;
-        view.nearClipPlane = 1f;
-        view.farClipPlane = 200f;
-        view.clearFlags = CameraClearFlags.SolidColor;
-        view.backgroundColor = new Color(0.01f, 0.015f, 0.04f);
-        view.allowHDR = true;
-        cameraObject.transform.rotation = Quaternion.Euler(33f, -45f, 0f);
-        cameraObject.AddComponent<AudioListener>();
-
-        var sun = new GameObject("Key Light").AddComponent<Light>();
-        sun.type = LightType.Directional;
-        sun.intensity = 1.15f;
-        sun.shadows = LightShadows.Soft;
-        sun.shadowStrength = 0.8f;
-        sun.transform.rotation = Quaternion.Euler(58f, -20f, 0f);
-        RenderSettings.ambientMode = AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.16f, 0.2f, 0.3f);
-        QualitySettings.shadowDistance = 90f;
-
-        flash = new GameObject("Explosion Flash").AddComponent<Light>();
-        flash.type = LightType.Point;
-        flash.range = 9f;
-        flash.intensity = 0f;
-
-        fieldMaterial = new Material(Mat(Magenta, true)) { name = "Force field" };
-
-        templates = Group("Templates", transform, Vector3.zero);
-        templates.gameObject.SetActive(false);
-        turretTemplate = BuildTurret();
-        fuelTemplate = BuildFuelTank();
-        radarTemplate = BuildRadar();
-        droneTemplate = BuildDrone();
-        laserTemplate = BuildLaser();
-        boltTemplate = BuildBolt();
-
-        BuildShip();
-        BuildBoss();
-        explosionFx = BuildExplosionFx();
-    }
-
-    private void BuildAudio()
-    {
-        sfx = gameObject.AddComponent<AudioSource>();
-        sfx.playOnAwake = false;
-        sfx.volume = 0.8f;
-
-        engine = gameObject.AddComponent<AudioSource>();
-        engine.clip = sounds.Engine;
-        engine.loop = true;
-        engine.volume = 0.25f;
-        engine.Play();
-    }
-
-    private void BuildShip()
-    {
-        ship = Group("Strike Fighter", null, new Vector3(0f, 3f, 0f));
-        shipBody = ship.gameObject.AddComponent<Rigidbody>();
-        shipBody.useGravity = false;
-        shipBody.isKinematic = false;
-        shipBody.interpolation = RigidbodyInterpolation.Interpolate;
-        shipBody.constraints = RigidbodyConstraints.FreezeRotation;
-        shipBody.detectCollisions = false;
-
-        shipModel = Group("Fighter model", ship, Vector3.zero);
-        Beveled("Fuselage", shipModel, new Vector3(0f, 0f, 0f), new Vector3(0.62f, 0.4f, 2f), Bone, 0.14f, false, new Vector3(0f, 0f, 0f));
-        Beveled("Nose", shipModel, new Vector3(0f, -0.02f, 1.15f), new Vector3(0.4f, 0.26f, 0.6f), Bone, 0.1f);
-        Part(PrimitiveType.Sphere, "Nose cone", shipModel, new Vector3(0f, -0.02f, 1.45f), new Vector3(0.28f, 0.2f, 0.4f), Red);
-        Part(PrimitiveType.Sphere, "Canopy", shipModel, new Vector3(0f, 0.22f, 0.45f), new Vector3(0.34f, 0.22f, 0.7f), Cyan, true);
-        Beveled("Spine", shipModel, new Vector3(0f, 0.24f, -0.35f), new Vector3(0.3f, 0.14f, 0.9f), Hull, 0.05f);
-        var wing = CreateWingMesh(1.35f, 1.3f, 0.35f, 0.75f, 0.08f);
-        MeshPart("Right wing", shipModel, new Vector3(0.28f, -0.05f, -0.3f), Vector3.zero, wing, Hull, false);
-        var leftWing = MeshPart("Left wing", shipModel, new Vector3(-0.28f, -0.05f, -0.3f), Vector3.zero, wing, Hull, false);
-        leftWing.transform.localScale = new Vector3(-1f, 1f, 1f);
-        foreach (var side in new[] { -1f, 1f })
-        {
-            Part(PrimitiveType.Cube, "Wing stripe", shipModel, new Vector3(side * 1.05f, 0f, -0.75f), new Vector3(0.5f, 0.1f, 0.12f), Gold, true);
-            Part(PrimitiveType.Cylinder, "Wing cannon", shipModel, new Vector3(side * 1.55f, -0.02f, -0.45f), new Vector3(0.09f, 0.45f, 0.09f), Armor, false, new Vector3(90f, 0f, 0f));
-            Beveled("Tail fin", shipModel, new Vector3(side * 0.3f, 0.38f, -0.8f), new Vector3(0.06f, 0.5f, 0.45f), Hull, 0.02f, false, new Vector3(0f, 0f, side * -18f));
-            Part(PrimitiveType.Cylinder, "Engine pod", shipModel, new Vector3(side * 0.42f, -0.06f, -0.85f), new Vector3(0.28f, 0.35f, 0.28f), Armor, false, new Vector3(90f, 0f, 0f));
-            Part(PrimitiveType.Sphere, "Afterburner", shipModel, new Vector3(side * 0.42f, -0.06f, -1.22f), new Vector3(0.24f, 0.24f, 0.12f), Cyan, true);
-            Part(PrimitiveType.Sphere, "Nav light", shipModel, new Vector3(side * 1.6f, 0.02f, -0.9f), Vector3.one * 0.1f, side < 0 ? Red : Lime, true);
-        }
-
-        DisableShadows(shipModel);
-        var shadow = Part(PrimitiveType.Cylinder, "Ground shadow", null, Vector3.zero, new Vector3(1.5f, 0.01f, 1.9f), ShadowTint);
-        shadow.shadowCastingMode = ShadowCastingMode.Off;
-        shipShadow = shadow.transform;
-
-        engineFx = new GameObject("Engine trail").AddComponent<ParticleSystem>();
-        engineFx.transform.SetParent(ship, false);
-        engineFx.transform.localPosition = new Vector3(0f, -0.06f, -1.3f);
-        engineFx.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
-        var main = engineFx.main;
-        main.startLifetime = 0.35f;
-        main.startSpeed = 4f;
-        main.startSize = 0.22f;
-        main.startColor = new Color(0.3f, 0.85f, 1f, 0.8f);
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        var shape = engineFx.shape;
-        shape.shapeType = ParticleSystemShapeType.Cone;
-        shape.angle = 6f;
-        shape.radius = 0.2f;
-        var size = engineFx.sizeOverLifetime;
-        size.enabled = true;
-        size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
-        engineFx.GetComponent<ParticleSystemRenderer>().sharedMaterial = ParticleMaterial();
-    }
-
-    private ParticleSystem BuildExplosionFx()
-    {
-        var fx = new GameObject("Explosion FX").AddComponent<ParticleSystem>();
-        fx.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        var main = fx.main;
-        main.loop = false;
-        main.playOnAwake = false;
-        main.maxParticles = 3000;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.9f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(2f, 10f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.45f);
-        main.gravityModifier = 0.6f;
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        var emission = fx.emission;
-        emission.enabled = false;
-        var shape = fx.shape;
-        shape.shapeType = ParticleSystemShapeType.Sphere;
-        shape.radius = 0.35f;
-        var size = fx.sizeOverLifetime;
-        size.enabled = true;
-        size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
-        var color = fx.colorOverLifetime;
-        color.enabled = true;
-        var gradient = new Gradient();
-        gradient.SetKeys(
-            new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0.8f, 0.6f), new GradientAlphaKey(0f, 1f) });
-        color.color = gradient;
-        fx.GetComponent<ParticleSystemRenderer>().sharedMaterial = ParticleMaterial();
-        fx.Play();
-        return fx;
-    }
-
-    private GameObject BuildTurret()
-    {
-        var root = Group("Turret", templates, Vector3.zero);
-        Beveled("Turret base", root, new Vector3(0f, 0.25f, 0f), new Vector3(1.3f, 0.5f, 1.3f), Hull, 0.18f);
-        Ring("Base glow", root, new Vector3(0f, 0.52f, 0f), 0.5f, 0.05f, Red);
-        var head = Group("Head", root, new Vector3(0f, 0.8f, 0f));
-        Part(PrimitiveType.Sphere, "Turret dome", head, Vector3.zero, new Vector3(0.9f, 0.6f, 0.9f), Armor);
-        Part(PrimitiveType.Cylinder, "Barrel", head, new Vector3(0f, 0.05f, 0.55f), new Vector3(0.14f, 0.4f, 0.14f), Hull, false, new Vector3(90f, 0f, 0f));
-        Part(PrimitiveType.Sphere, "Sensor", head, new Vector3(0f, 0.2f, 0.32f), Vector3.one * 0.16f, Red, true);
-        return root.gameObject;
-    }
-
-    private GameObject BuildFuelTank()
-    {
-        var root = Group("Fuel tank", templates, Vector3.zero);
-        Beveled("Tank cradle", root, new Vector3(0f, 0.12f, 0f), new Vector3(1.5f, 0.24f, 1.5f), Hull, 0.1f);
-        Part(PrimitiveType.Cylinder, "Tank", root, new Vector3(0f, 0.95f, 0f), new Vector3(1.15f, 0.7f, 1.15f), Gold);
-        Part(PrimitiveType.Sphere, "Tank cap", root, new Vector3(0f, 1.65f, 0f), new Vector3(1.1f, 0.45f, 1.1f), Gold);
-        Ring("Fuel band", root, new Vector3(0f, 0.7f, 0f), 0.6f, 0.05f, Red);
-        Ring("Fuel band", root, new Vector3(0f, 1.2f, 0f), 0.6f, 0.05f, Red);
-        Part(PrimitiveType.Cube, "Fuel glyph", root, new Vector3(0f, 0.95f, -0.58f), new Vector3(0.36f, 0.36f, 0.04f), Red, true);
-        return root.gameObject;
-    }
-
-    private GameObject BuildRadar()
-    {
-        var root = Group("Radar dish", templates, Vector3.zero);
-        Beveled("Radar plinth", root, new Vector3(0f, 0.2f, 0f), new Vector3(1.6f, 0.4f, 1.6f), Hull, 0.15f);
-        Part(PrimitiveType.Cylinder, "Mast", root, new Vector3(0f, 1f, 0f), new Vector3(0.2f, 0.7f, 0.2f), Armor);
-        var head = Group("Head", root, new Vector3(0f, 1.8f, 0f));
-        Part(PrimitiveType.Sphere, "Dish", head, new Vector3(0f, 0.2f, 0.1f), new Vector3(1.7f, 1.2f, 0.25f), Bone, false, new Vector3(-20f, 0f, 0f));
-        Part(PrimitiveType.Cylinder, "Feed horn", head, new Vector3(0f, 0.25f, -0.35f), new Vector3(0.06f, 0.35f, 0.06f), Armor, false, new Vector3(70f, 0f, 0f));
-        Part(PrimitiveType.Sphere, "Emitter", head, new Vector3(0f, 0.36f, -0.7f), Vector3.one * 0.18f, Lime, true);
-        return root.gameObject;
-    }
-
-    private GameObject BuildDrone()
-    {
-        var root = Group("Drone", templates, Vector3.zero);
-        Beveled("Drone hull", root, Vector3.zero, new Vector3(0.9f, 0.4f, 1f), Hull, 0.14f);
-        Part(PrimitiveType.Sphere, "Drone eye", root, new Vector3(0f, 0f, 0.5f), new Vector3(0.36f, 0.26f, 0.12f), Red, true);
-        foreach (var side in new[] { -1f, 1f })
-        {
-            Beveled("Drone wing", root, new Vector3(side * 0.75f, 0f, -0.1f), new Vector3(0.7f, 0.08f, 0.6f), Armor, 0.03f, false, new Vector3(0f, side * 20f, side * -10f));
-            Part(PrimitiveType.Sphere, "Wing tip", root, new Vector3(side * 1.08f, 0f, -0.2f), Vector3.one * 0.14f, Magenta, true);
-        }
-
-        Ring("Drone rotor", root, new Vector3(0f, 0.25f, 0f), 0.35f, 0.04f, Magenta);
-        return root.gameObject;
-    }
-
-    private GameObject BuildLaser()
-    {
-        var root = Group("Laser", templates, Vector3.zero);
-        Part(PrimitiveType.Capsule, "Laser bolt", root, Vector3.zero, new Vector3(0.12f, 0.6f, 0.12f), Lime, true, new Vector3(90f, 0f, 0f));
-        return root.gameObject;
-    }
-
-    private GameObject BuildBolt()
-    {
-        var root = Group("Enemy bolt", templates, Vector3.zero);
-        Part(PrimitiveType.Sphere, "Plasma", root, Vector3.zero, Vector3.one * 0.38f, Red, true);
-        Part(PrimitiveType.Sphere, "Plasma core", root, Vector3.zero, Vector3.one * 0.2f, Bone, true);
-        return root.gameObject;
-    }
-
-    private void BuildBoss()
-    {
-        // The Warden: a towering original guardian mech with a glowing core eye as its weak point.
-        boss = Group("The Warden", null, Vector3.zero);
-        Beveled("Hips", boss, new Vector3(0f, 1.6f, 0f), new Vector3(2.4f, 0.8f, 1.4f), Hull, 0.2f);
-        foreach (var side in new[] { -1f, 1f })
-        {
-            Beveled("Leg", boss, new Vector3(side * 1.1f, 0.8f, 0f), new Vector3(0.8f, 1.6f, 1f), Armor, 0.18f);
-            Beveled("Foot", boss, new Vector3(side * 1.1f, 0.15f, -0.2f), new Vector3(1.1f, 0.3f, 1.6f), Hull, 0.1f);
-            Beveled("Shoulder", boss, new Vector3(side * 2.15f, 5.2f, 0f), new Vector3(1.2f, 1f, 1.3f), Armor, 0.2f);
-            var cannon = Group(side < 0 ? "Left cannon" : "Right cannon", boss, new Vector3(side * 2.35f, 4.1f, 0f));
-            Beveled("Arm", cannon, new Vector3(0f, 0f, 0f), new Vector3(0.75f, 1.6f, 0.75f), Hull, 0.15f);
-            Part(PrimitiveType.Cylinder, "Cannon barrel", cannon, new Vector3(0f, -0.4f, 0.9f), new Vector3(0.4f, 0.8f, 0.4f), Armor, false, new Vector3(90f, 0f, 0f));
-            Ring("Muzzle glow", cannon, new Vector3(0f, -0.4f, 1.7f), 0.22f, 0.06f, Red, true, new Vector3(90f, 0f, 0f));
-            Part(PrimitiveType.Sphere, "Shoulder lamp", boss, new Vector3(side * 2.15f, 5.8f, 0.55f), Vector3.one * 0.25f, Gold, true);
-            if (side < 0) bossLeftCannon = cannon;
-            else bossRightCannon = cannon;
-        }
-
-        Beveled("Torso", boss, new Vector3(0f, 3.9f, 0f), new Vector3(3.2f, 3.2f, 1.8f), Armor, 0.35f);
-        Beveled("Chest plate", boss, new Vector3(0f, 3.9f, 0.88f), new Vector3(2.4f, 2.4f, 0.15f), Hull, 0.25f);
-        Ring("Core housing", boss, new Vector3(0f, 4.1f, 0.98f), 0.75f, 0.12f, Gold, true, new Vector3(90f, 0f, 0f));
-        bossCore = Part(PrimitiveType.Sphere, "Core eye", boss, new Vector3(0f, 4.1f, 1.05f), Vector3.one * 1.1f, Red, true);
-        Beveled("Head", boss, new Vector3(0f, 6.1f, 0.1f), new Vector3(1.3f, 0.9f, 1.1f), Hull, 0.2f);
-        Part(PrimitiveType.Cube, "Visor", boss, new Vector3(0f, 6.15f, 0.66f), new Vector3(0.9f, 0.16f, 0.04f), Red, true);
-        Part(PrimitiveType.Cylinder, "Antenna", boss, new Vector3(0.4f, 6.9f, 0f), new Vector3(0.05f, 0.45f, 0.05f), Bone);
-        Part(PrimitiveType.Sphere, "Antenna tip", boss, new Vector3(0.4f, 7.35f, 0f), Vector3.one * 0.16f, Red, true);
-        boss.gameObject.SetActive(false);
     }
 }

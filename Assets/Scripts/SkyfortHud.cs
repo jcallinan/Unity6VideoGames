@@ -166,24 +166,11 @@ public static class SkyfortHud
     private static readonly Color Gold = new(1f, 0.62f, 0.12f);
     private static readonly Color Red = new(1f, 0.14f, 0.22f);
 
-    public static UIDocument Create(Transform parent, SkyfortHudState state)
+    // Fills the scene's HUD UIDocument (its PanelSettings asset lives in Assets/UI) and binds it to the state.
+    public static void Build(UIDocument document, SkyfortHudState state)
     {
-        var panel = ScriptableObject.CreateInstance<PanelSettings>();
-        panel.name = "Skyfort HUD panel";
-        panel.themeStyleSheet = ScriptableObject.CreateInstance<ThemeStyleSheet>();
-        panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
-        panel.referenceResolution = new Vector2Int(1280, 720);
-        panel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-        panel.match = 0.5f;
-
-        var host = new GameObject("Skyfort HUD");
-        host.SetActive(false);
-        host.transform.SetParent(parent, false);
-        var document = host.AddComponent<UIDocument>();
-        document.panelSettings = panel;
-        host.SetActive(true);
-
         var root = document.rootVisualElement;
+        root.Clear();
         root.pickingMode = PickingMode.Ignore;
         root.style.unityFontDefinition = new StyleFontDefinition(FontDefinition.FromFont(Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")));
         root.style.color = Color.white;
@@ -264,8 +251,6 @@ public static class SkyfortHud
         banner.style.unityTextOutlineColor = new Color(0f, 0.2f, 0.4f);
         banner.style.unityTextOutlineWidth = 1.5f;
         BoundLabel(bannerBox, nameof(SkyfortHudState.SubBanner), 20, Cyan);
-
-        return document;
     }
 
     private static Color Lime() => new(0.45f, 1f, 0.35f);

@@ -71,9 +71,20 @@ public static class SkyfortModels
         renderer.transform.localScale = size;
         return renderer;
     }
+
     private static readonly Dictionary<(Vector3, float), Mesh> BevelMeshes = new();
     private static readonly Dictionary<(float, float), Mesh> RingMeshes = new();
     private static Material particleMaterial;
+
+    // Forget cached meshes/materials. The Editor scene builder calls this so each rebuild saves fresh assets.
+    public static void ResetCaches()
+    {
+        Materials.Clear();
+        BevelMeshes.Clear();
+        RingMeshes.Clear();
+        pyramidMesh = null;
+        particleMaterial = null;
+    }
 
     public static Transform Group(string name, Transform parent, Vector3 localPosition, Vector3 localEuler = default)
     {
@@ -90,7 +101,15 @@ public static class SkyfortModels
     {
         var part = GameObject.CreatePrimitive(type);
         part.name = name;
-        Object.Destroy(part.GetComponent<Collider>());
+        // Gameplay uses its own collision math, so primitives drop their colliders (also when built in the Editor).
+        if (Application.isPlaying)
+        {
+            Object.Destroy(part.GetComponent<Collider>());
+        }
+        else
+        {
+            Object.DestroyImmediate(part.GetComponent<Collider>());
+        }
         part.transform.SetParent(parent, false);
         part.transform.localPosition = localPosition;
         part.transform.localScale = localScale;
@@ -110,10 +129,11 @@ public static class SkyfortModels
         bool emissive = false, Vector3 localEuler = default)
     {
         var key = (size, bevel);
-        if (!BevelMeshes.TryGetValue(key, out var mesh))
+        if (!BevelMeshes.TryGetValue(key, out var mesh) || mesh == null)
         {
             mesh = CreateBeveledBoxMesh(size, bevel);
-            BevelMeshes.Add(key, mesh);
+            mesh.name = $"Bevel {size.x:0.##}x{size.y:0.##}x{size.z:0.##} r{bevel:0.##}";
+            BevelMeshes[key] = mesh;
         }
 
         return MeshPart(name, parent, localPosition, localEuler, mesh, color, emissive);
@@ -124,10 +144,11 @@ public static class SkyfortModels
         bool emissive = true, Vector3 localEuler = default)
     {
         var key = (radius, thickness);
-        if (!RingMeshes.TryGetValue(key, out var mesh))
+        if (!RingMeshes.TryGetValue(key, out var mesh) || mesh == null)
         {
             mesh = CreateRingMesh(radius, thickness);
-            RingMeshes.Add(key, mesh);
+            mesh.name = $"Ring r{radius:0.##} t{thickness:0.##}";
+            RingMeshes[key] = mesh;
         }
 
         return MeshPart(name, parent, localPosition, localEuler, mesh, color, emissive);
@@ -153,7 +174,7 @@ public static class SkyfortModels
 
     public static Material Mat(Color color, bool emissive)
     {
-        if (Materials.TryGetValue((color, emissive), out var cached))
+        if (Materials.TryGetValue((color, emissive), out var cached) && cached != null)
         {
             return cached;
         }
@@ -162,6 +183,7 @@ public static class SkyfortModels
         // Shader.Find alone returns null in a build when no asset references the shader.
         var template = Resources.Load<Material>(emissive ? "SkyfortEmissive" : "SkyfortLit");
         var material = template != null ? new Material(template) : new Material(Shader.Find("Standard"));
+        material.name = $"{(emissive ? "Glow" : "Lit")} {ColorUtility.ToHtmlStringRGB(color)}";
         material.color = color;
         material.enableInstancing = true;
         if (emissive)
@@ -171,7 +193,7 @@ public static class SkyfortModels
             material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
         }
 
-        Materials.Add((color, emissive), material);
+        Materials[(color, emissive)] = material;
         return material;
     }
 
