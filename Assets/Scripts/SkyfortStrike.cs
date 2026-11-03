@@ -34,7 +34,7 @@ public sealed class SkyfortStrike : MonoBehaviour
 
     private static readonly Vector3 ShipHalf = new(0.7f, 0.28f, 0.8f);
 
-    private enum ChunkKind { Entry, LowWall, Gate, FieldLow, FieldHigh, TurretRow, FuelDepot, RadarSite, Mixed, Exit, Space, Arena, BossArena, Open, Drift }
+    private enum ChunkKind { Entry, FieldLow, Pyramids, PyramidRow, CastleWall, CastleKeep, TurretRow, FuelDepot, RadarSite, Mixed, Exit, Space, Arena, BossArena, Open, Drift }
     private enum TargetKind { Turret, FuelTank, Radar, Drone }
     private enum Phase { Loading, Countdown, Playing, Respawning, GameOver }
 
@@ -49,7 +49,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         public Bounds Bounds;
         public Chunk Chunk;
-        public string Reason;
+        public bool Pyramid;
     }
 
     private sealed class Target
@@ -133,6 +133,8 @@ public sealed class SkyfortStrike : MonoBehaviour
     private float nextFuelAlarm;
     private bool paused;
     private int safeChunks;
+    private Vector3 bounce;
+    private float nextBounceFx;
     private bool safeSpace;
     private Vector2 steer;
 
@@ -221,7 +223,8 @@ public sealed class SkyfortStrike : MonoBehaviour
 
         // Unity 6 Rigidbody API: linearVelocity (formerly velocity).
         var position = shipBody.position;
-        var velocity = new Vector3(steer.x * 9f, steer.y * 6.5f, speed);
+        var velocity = new Vector3(steer.x * 9f, steer.y * 6.5f, speed) + bounce;
+        bounce *= Mathf.Exp(-3.2f * Time.fixedDeltaTime);
         if ((position.x <= -CorridorHalfWidth && velocity.x < 0f) || (position.x >= CorridorHalfWidth && velocity.x > 0f))
         {
             velocity.x = 0f;
@@ -360,6 +363,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         shipModel.gameObject.SetActive(true);
         shipModel.localRotation = Quaternion.identity;
         steer = Vector2.zero;
+        bounce = Vector3.zero;
         // Teleport without interpolation, otherwise the transform sweeps from the old pose through the new course.
         // FixedUpdate turns interpolation back on once the ship is flying again.
         shipBody.interpolation = RigidbodyInterpolation.None;
@@ -428,7 +432,9 @@ public sealed class SkyfortStrike : MonoBehaviour
         var y = (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow) ? 1f : 0f)
                 - (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow) ? 1f : 0f);
         steer = Vector2.MoveTowards(steer, new Vector2(x, y), Time.deltaTime * 8f);
-        shipModel.localRotation = Quaternion.Euler(-steer.y * 14f, 0f, -steer.x * 28f);
+        // Nose pitches up and the wings wobble while a bounce is still carrying the ship.
+        var wobble = Mathf.Sin(Time.time * 38f) * Mathf.Min(bounce.magnitude, 12f) * 1.6f;
+        shipModel.localRotation = Quaternion.Euler(-steer.y * 14f - bounce.y * 2.2f, 0f, -steer.x * 28f + wobble);
 
         var blinking = Time.time < invulnerableUntil && Mathf.Repeat(Time.time * 10f, 1f) < 0.35f;
         shipModel.gameObject.SetActive(!blinking);
@@ -471,36 +477,123 @@ public sealed class SkyfortStrike : MonoBehaviour
         emission.rateOverTime = 40f + steer.y * 20f;
     }
 
+    // Running into scenery never costs a ship: the fighter rebounds back and up instead.
+    // (Enemy fire and running out of fuel still do.)
     private void CheckShipCollisions()
     {
-        if (Time.time < invulnerableUntil)
-        {
-            return;
-        }
-
         var shipBounds = new Bounds(ShipPosition, ShipHalf * 2f);
         foreach (var solid in solids)
         {
-            if (solid.Bounds.Intersects(shipBounds))
+            if (SolidOverlaps(solid, shipBounds))
             {
-                CrashAsync(solid.Reason);
+                Bounce(solid.Bounds, solid.Pyramid);
                 return;
             }
         }
 
         foreach (var target in targets)
         {
-            if (new Bounds(target.Center, target.Half * 2f).Intersects(shipBounds))
+            var bounds = new Bounds(target.Center, target.Half * 2f);
+            if (bounds.Intersects(shipBounds))
             {
-                CrashAsync("COLLISION");
+                Bounce(bounds, false);
                 return;
             }
         }
 
-        if (bossActive && !bossRetreating && new Bounds(boss.position + new Vector3(0f, 3.5f, 0f), new Vector3(5.4f, 7f, 2.4f)).Intersects(shipBounds))
+        var bossBody = new Bounds(boss.position + new Vector3(0f, 3.5f, 0f), new Vector3(5.4f, 7f, 2.4f));
+        if (bossActive && !bossRetreating && bossBody.Intersects(shipBounds))
         {
-            CrashAsync("COLLISION");
+            Bounce(bossBody, false);
         }
+    }
+
+    private void Bounce(Bounds obstacle, bool sloped)
+    {
+        var position = ShipPosition;
+        var side = position.x >= obstacle.center.x ? 1f : -1f;
+        var fix = position;
+        if (sloped)
+        {
+            // Pyramid slope: lift clear and kick up and slightly sideways.
+            fix.y = Mathf.Min(MaxAltitude, position.y + 0.35f);
+            bounce = new Vector3(side * 3f, 11f, -speed * 0.35f);
+        }
+        else if (position.y - ShipHalf.y > obstacle.max.y - 0.6f)
+        {
+            // Scraped the top edge: pop upward.
+            fix.y = Mathf.Min(MaxAltitude, obstacle.max.y + ShipHalf.y + 0.05f);
+            bounce = new Vector3(0f, 10f, -speed * 0.2f);
+        }
+        else if (position.z - ShipHalf.z < obstacle.min.z + 0.4f)
+        {
+            // Flew into the front face: knocked back and up.
+            fix.z = obstacle.min.z - ShipHalf.z - 0.05f;
+            bounce = new Vector3(side * 1.5f, 10f, -(speed + 8f));
+        }
+        else
+        {
+            // Clipped a side: shoved sideways and up.
+            fix.x = side > 0f ? obstacle.max.x + ShipHalf.x + 0.05f : obstacle.min.x - ShipHalf.x - 0.05f;
+            bounce = new Vector3(side * 8f, 8f, -speed * 0.3f);
+        }
+
+        fix.x = Mathf.Clamp(fix.x, -CorridorHalfWidth, CorridorHalfWidth);
+        shipBody.position = fix;
+
+        if (Time.time >= nextBounceFx)
+        {
+            nextBounceFx = Time.time + 0.2f;
+            Explode(position + Vector3.forward * 0.8f, Gold, 14, false);
+            sfx.PlayOneShot(sounds.Bounce, 0.8f);
+        }
+    }
+
+    // Pyramids collide by their actual slopes; everything else is a box.
+    private static float PyramidHeightAt(in Solid solid, float x, float z)
+    {
+        var bounds = solid.Bounds;
+        var reach = Mathf.Max(Mathf.Abs(x - bounds.center.x) / bounds.extents.x, Mathf.Abs(z - bounds.center.z) / bounds.extents.z);
+        return reach >= 1f ? float.NegativeInfinity : bounds.min.y + bounds.size.y * (1f - reach);
+    }
+
+    private static bool SolidContains(in Solid solid, Vector3 point)
+    {
+        return solid.Bounds.Contains(point) && (!solid.Pyramid || point.y < PyramidHeightAt(solid, point.x, point.z));
+    }
+
+    private static bool SolidOverlaps(in Solid solid, Bounds ship)
+    {
+        if (!solid.Bounds.Intersects(ship)) return false;
+        if (!solid.Pyramid) return true;
+        // The highest slope point under the ship is the footprint point nearest the apex.
+        var center = solid.Bounds.center;
+        var x = Mathf.Clamp(center.x, ship.min.x, ship.max.x);
+        var z = Mathf.Clamp(center.z, ship.min.z, ship.max.z);
+        return PyramidHeightAt(solid, x, z) > ship.min.y;
+    }
+
+    private static bool SolidRay(in Solid solid, Ray ray, float maxDistance, out float distance)
+    {
+        distance = 0f;
+        if (!solid.Bounds.IntersectRay(ray, out var enter) || enter > maxDistance) return false;
+        enter = Mathf.Max(enter, 0f);
+        if (!solid.Pyramid)
+        {
+            distance = enter;
+            return true;
+        }
+
+        for (var d = enter; d <= maxDistance; d += 0.2f)
+        {
+            if (SolidContains(solid, ray.GetPoint(d)))
+            {
+                distance = d;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ---------------------------------------------------------------- Projectiles
@@ -563,7 +656,7 @@ public sealed class SkyfortStrike : MonoBehaviour
 
         foreach (var solid in solids)
         {
-            if (solid.Bounds.IntersectRay(ray, out var d) && d <= closest)
+            if (SolidRay(solid, ray, closest, out var d))
             {
                 closest = d;
                 hitTarget = null;
@@ -616,7 +709,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         foreach (var solid in solids)
         {
-            if (solid.Bounds.Contains(position)) return true;
+            if (SolidContains(solid, position)) return true;
         }
 
         return false;
@@ -946,8 +1039,8 @@ public sealed class SkyfortStrike : MonoBehaviour
 
     private void EnqueueLevel(int number)
     {
-        var fortressA = new[] { ChunkKind.LowWall, ChunkKind.Gate, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite };
-        var fortressB = new[] { ChunkKind.Gate, ChunkKind.FieldLow, ChunkKind.FieldHigh, ChunkKind.TurretRow, ChunkKind.Mixed, ChunkKind.RadarSite, ChunkKind.LowWall };
+        var fortressA = new[] { ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite };
+        var fortressB = new[] { ChunkKind.Pyramids, ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.FieldLow };
 
         plan.Enqueue(ChunkKind.Arena);
         plan.Enqueue(ChunkKind.Entry);
@@ -1089,24 +1182,54 @@ public sealed class SkyfortStrike : MonoBehaviour
         switch (kind)
         {
             case ChunkKind.Entry:
-                BuildGate(chunk, z0 + 6f, 0f, 2.2f, 3.4f);
+                // Castle rampart: a low curtain wall to hop over, flanked by two big towers.
+                BuildCastleWall(chunk, z0 + 8f, -WallHalfWidth, WallHalfWidth, 1.9f);
+                BuildTower(chunk, -6.9f, z0 + 8f, 0.95f, 4.8f);
+                BuildTower(chunk, 6.9f, z0 + 8f, 0.95f, 4.8f);
                 break;
             case ChunkKind.Exit:
-                BuildGate(chunk, z0 + 12f, Random.Range(-3f, 3f), Random.Range(1f, 3.5f), 3.2f);
+                BuildPyramid(chunk, -3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
+                BuildPyramid(chunk, 3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
                 AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 4f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
-            case ChunkKind.LowWall:
-                BuildBarrier(chunk, z0 + 9f, Random.Range(1.8f, 3.3f));
-                AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 15f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+            case ChunkKind.Pyramids:
+                for (var i = 0; i < 2 + Mathf.Min(level, 2) / 2; i++)
+                {
+                    var size = Random.Range(3f, 5.2f);
+                    BuildPyramid(chunk, Random.Range(-4.5f, 4.5f), z0 + 4f + i * 5.5f, size, Random.Range(2.4f, Mathf.Min(6f, size * 1.25f)));
+                }
+
                 break;
-            case ChunkKind.Gate:
-                BuildGate(chunk, z0 + 9f, Random.Range(-3.8f, 3.8f), Random.Range(MinAltitude, 4f), Mathf.Max(2.4f, 3.2f - level * 0.15f));
+            case ChunkKind.PyramidRow:
+            {
+                // Three pyramids across the corridor; one is always low enough to skim over.
+                var low = Random.Range(0, 3);
+                for (var i = 0; i < 3; i++)
+                {
+                    BuildPyramid(chunk, (i - 1) * 4.7f, z0 + 9f, 4.4f, i == low ? 2.3f : Random.Range(4.4f, 6f));
+                }
+
+                break;
+            }
+            case ChunkKind.CastleWall:
+            {
+                var wallHeight = Random.Range(2.1f, 3f);
+                BuildCastleWall(chunk, z0 + 10f, -WallHalfWidth, WallHalfWidth, wallHeight);
+                var towerX = Random.Range(-4.5f, -1.5f);
+                BuildTower(chunk, towerX, z0 + 10f, 0.8f, Random.Range(5f, 5.9f));
+                BuildTower(chunk, towerX + Random.Range(3.5f, 6f), z0 + 10f, 0.8f, Random.Range(5f, 5.9f));
+                if (Random.value < 0.6f)
+                {
+                    AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5.5f, 5.5f), wallHeight + 0.12f, z0 + 10f + 0.2f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 200);
+                }
+
+                break;
+            }
+            case ChunkKind.CastleKeep:
+                BuildKeep(chunk, Random.Range(-3f, 3f), z0 + 9f);
                 break;
             case ChunkKind.FieldLow:
                 BuildField(chunk, z0 + 9f, 0f, Random.Range(2.6f, 4.6f));
-                break;
-            case ChunkKind.FieldHigh:
-                BuildField(chunk, z0 + 9f, Random.Range(2.8f, 4.6f), CeilingHeight);
                 break;
             case ChunkKind.TurretRow:
                 for (var i = 0; i < 2 + Mathf.Min(level, 3); i++)
@@ -1125,7 +1248,7 @@ public sealed class SkyfortStrike : MonoBehaviour
                 AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 3f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Mixed:
-                BuildBarrier(chunk, z0 + 5f, Random.Range(1.6f, 2.6f));
+                BuildPyramid(chunk, Random.Range(-4f, 4f), z0 + 5f, 4f, Random.Range(3f, 5f));
                 AddTarget(chunk, TargetKind.FuelTank, fuelTemplate, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 10f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
                 AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 15f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
@@ -1144,43 +1267,91 @@ public sealed class SkyfortStrike : MonoBehaviour
         }
     }
 
-    private void AddSolid(Chunk chunk, Vector3 center, Vector3 size, Color color, float bevel = 0.12f)
+    // Every obstacle tops out below MaxAltitude, so flying high always clears it; flying around works too.
+    private void AddBox(Chunk chunk, Vector3 center, Vector3 size)
     {
-        if (size.x <= 0.01f || size.y <= 0.01f) return;
-        var local = center - chunk.Root.position;
-        Beveled("Fortress wall", chunk.Root, local, size, color, bevel);
-        Beveled("Wall trim", chunk.Root, local + new Vector3(0f, size.y * 0.5f - 0.08f, -size.z * 0.5f - 0.02f), new Vector3(size.x - 0.1f, 0.08f, 0.04f), Cyan, 0.02f, true);
-        solids.Add(new Solid { Bounds = new Bounds(center, size), Chunk = chunk, Reason = "HIT THE WALL" });
+        solids.Add(new Solid { Bounds = new Bounds(center, size), Chunk = chunk });
     }
 
-    private void BuildBarrier(Chunk chunk, float z, float height)
+    private void BuildPyramid(Chunk chunk, float x, float z, float baseSize, float height)
     {
-        AddSolid(chunk, new Vector3(0f, height * 0.5f, z), new Vector3(WallHalfWidth * 2f, height, 1.2f), Armor);
-        // Height ladder painted on the wall face helps read its altitude.
-        for (var y = 1f; y < height; y += 1f)
+        var root = chunk.Root;
+        var local = new Vector3(x, 0f, z - chunk.StartZ);
+        Part(PrimitiveType.Cube, "Pyramid plinth", root, local + new Vector3(0f, 0.1f, 0f), new Vector3(baseSize + 0.5f, 0.2f, baseSize + 0.5f), DarkSandstone);
+        Pyramid("Pyramid", root, local + new Vector3(0f, 0.2f, 0f), new Vector3(baseSize, height - 0.2f, baseSize), Sandstone);
+        // Glowing capstone (the top 15% of the same slope) and a band of light around the plinth.
+        var cap = 0.15f;
+        Pyramid("Capstone", root, local + new Vector3(0f, 0.2f + (height - 0.2f) * (1f - cap), 0f), new Vector3(baseSize * cap * 1.04f, (height - 0.2f) * cap * 1.04f, baseSize * cap * 1.04f), Gold, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3(0f, 0.2f, -(baseSize + 0.5f) * 0.5f - 0.01f), new Vector3(baseSize + 0.5f, 0.05f, 0.03f), Gold, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3((baseSize + 0.5f) * 0.5f + 0.01f, 0.2f, 0f), new Vector3(0.03f, 0.05f, baseSize + 0.5f), Gold, true);
+        solids.Add(new Solid
         {
-            Part(PrimitiveType.Cube, "Height mark", chunk.Root, new Vector3(-WallHalfWidth + 0.6f, y, z - chunk.StartZ - 0.62f), new Vector3(0.6f, 0.06f, 0.02f), Gold, true);
-        }
+            Bounds = new Bounds(new Vector3(x, height * 0.5f, z), new Vector3(baseSize, height, baseSize)),
+            Chunk = chunk,
+            Pyramid = true
+        });
     }
 
-    private void BuildGate(Chunk chunk, float z, float gapX, float gapY, float gapHeight)
+    private void BuildTower(Chunk chunk, float x, float z, float radius, float height)
     {
-        const float gapWidth = 4.4f;
-        var left = gapX - gapWidth * 0.5f;
-        var right = gapX + gapWidth * 0.5f;
-        var top = gapY + gapHeight;
-        AddSolid(chunk, new Vector3((-WallHalfWidth + left) * 0.5f, CeilingHeight * 0.5f, z), new Vector3(left + WallHalfWidth, CeilingHeight, 1.2f), Hull);
-        AddSolid(chunk, new Vector3((WallHalfWidth + right) * 0.5f, CeilingHeight * 0.5f, z), new Vector3(WallHalfWidth - right, CeilingHeight, 1.2f), Hull);
-        AddSolid(chunk, new Vector3(gapX, gapY * 0.5f, z), new Vector3(gapWidth, gapY, 1.2f), Armor);
-        AddSolid(chunk, new Vector3(gapX, (top + CeilingHeight) * 0.5f, z), new Vector3(gapWidth, CeilingHeight - top, 1.2f), Armor);
+        var tower = Group("Castle tower", chunk.Root, new Vector3(x, 0f, z - chunk.StartZ));
+        var body = height - 1.2f;
+        Part(PrimitiveType.Cylinder, "Tower body", tower, new Vector3(0f, body * 0.5f, 0f), new Vector3(radius * 2f, body * 0.5f, radius * 2f), CastleStone);
+        Part(PrimitiveType.Cylinder, "Tower parapet", tower, new Vector3(0f, body + 0.06f, 0f), new Vector3(radius * 2.35f, 0.1f, radius * 2.35f), CastleTrim);
+        Pyramid("Tower roof", tower, new Vector3(0f, body + 0.15f, 0f), new Vector3(radius * 2.1f, 1f, radius * 2.1f), RoofTile);
+        Part(PrimitiveType.Sphere, "Roof beacon", tower, new Vector3(0f, body + 1.18f, 0f), Vector3.one * 0.18f, Gold, true);
+        for (var y = 1.1f; y < body - 0.5f; y += 1.4f)
+        {
+            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(0f, y, -radius - 0.01f), new Vector3(0.14f, 0.45f, 0.04f), Gold, true);
+            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(radius + 0.01f, y, 0f), new Vector3(0.04f, 0.45f, 0.14f), Gold, true);
+        }
 
-        // Glowing frame around the opening.
-        var localZ = z - chunk.StartZ - 0.64f;
-        var frameMid = gapY + gapHeight * 0.5f;
-        Part(PrimitiveType.Cube, "Gate frame", chunk.Root, new Vector3(gapX, gapY, localZ), new Vector3(gapWidth, 0.08f, 0.04f), Gold, true);
-        Part(PrimitiveType.Cube, "Gate frame", chunk.Root, new Vector3(gapX, top, localZ), new Vector3(gapWidth, 0.08f, 0.04f), Gold, true);
-        Part(PrimitiveType.Cube, "Gate frame", chunk.Root, new Vector3(left, frameMid, localZ), new Vector3(0.08f, gapHeight, 0.04f), Gold, true);
-        Part(PrimitiveType.Cube, "Gate frame", chunk.Root, new Vector3(right, frameMid, localZ), new Vector3(0.08f, gapHeight, 0.04f), Gold, true);
+        AddBox(chunk, new Vector3(x, height * 0.5f, z), new Vector3(radius * 2f, height, radius * 2f));
+    }
+
+    private void BuildCastleWall(Chunk chunk, float z, float fromX, float toX, float height)
+    {
+        var root = chunk.Root;
+        var width = toX - fromX;
+        var centerX = (fromX + toX) * 0.5f;
+        var localZ = z - chunk.StartZ;
+        Part(PrimitiveType.Cube, "Curtain wall", root, new Vector3(centerX, height * 0.5f, localZ), new Vector3(width, height, 1.1f), CastleStone);
+        Part(PrimitiveType.Cube, "Wall walk", root, new Vector3(centerX, height + 0.05f, localZ), new Vector3(width, 0.1f, 1.3f), CastleTrim);
+        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), Cyan, true);
+        for (var x = fromX + 0.35f; x < toX - 0.2f; x += 0.9f)
+        {
+            Part(PrimitiveType.Cube, "Merlon", root, new Vector3(x, height + 0.3f, localZ - 0.45f), new Vector3(0.45f, 0.4f, 0.3f), CastleStone);
+        }
+
+        AddBox(chunk, new Vector3(centerX, (height + 0.5f) * 0.5f, z), new Vector3(width, height + 0.5f, 1.1f));
+    }
+
+    private void BuildKeep(Chunk chunk, float x, float z)
+    {
+        const float width = 4.2f;
+        const float depth = 3.6f;
+        const float height = 3.6f;
+        var root = chunk.Root;
+        var local = new Vector3(x, 0f, z - chunk.StartZ);
+        Part(PrimitiveType.Cube, "Keep", root, local + new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, depth), CastleStone);
+        Part(PrimitiveType.Cube, "Keep roof", root, local + new Vector3(0f, height + 0.05f, 0f), new Vector3(width + 0.2f, 0.1f, depth + 0.2f), CastleTrim);
+        Part(PrimitiveType.Cube, "Keep door", root, local + new Vector3(0f, 0.7f, -depth * 0.5f - 0.01f), new Vector3(1f, 1.4f, 0.04f), Gold, true);
+        for (var mx = -width * 0.5f + 0.3f; mx < width * 0.5f; mx += 0.8f)
+        {
+            Part(PrimitiveType.Cube, "Merlon", root, local + new Vector3(mx, height + 0.3f, -depth * 0.5f + 0.15f), new Vector3(0.4f, 0.4f, 0.3f), CastleStone);
+        }
+
+        AddBox(chunk, new Vector3(x, (height + 0.5f) * 0.5f, z), new Vector3(width, height + 0.5f, depth));
+        foreach (var cx in new[] { -1f, 1f })
+        {
+            foreach (var cz in new[] { -1f, 1f })
+            {
+                BuildTower(chunk, x + cx * width * 0.5f, z + cz * depth * 0.5f, 0.7f, 5.3f);
+            }
+        }
+
+        // A turret guards the keep roof; dive to just above the battlements to hit it.
+        AddTarget(chunk, TargetKind.Turret, turretTemplate, new Vector3(x, height + 0.1f, z), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 250);
     }
 
     private void BuildField(Chunk chunk, float z, float bottom, float top)
@@ -1202,7 +1373,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         }
 
         var height = top - bottom;
-        solids.Add(new Solid { Bounds = new Bounds(new Vector3(0f, bottom + height * 0.5f, z), new Vector3(WallHalfWidth * 2f, height, 0.5f)), Chunk = chunk, Reason = "FORCE FIELD!" });
+        solids.Add(new Solid { Bounds = new Bounds(new Vector3(0f, bottom + height * 0.5f, z), new Vector3(WallHalfWidth * 2f, height, 0.5f)), Chunk = chunk });
     }
 
     private void BuildDeck(Chunk chunk, bool arena)

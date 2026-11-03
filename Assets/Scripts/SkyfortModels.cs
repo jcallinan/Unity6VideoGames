@@ -17,8 +17,60 @@ public static class SkyfortModels
     public static readonly Color Lime = new(0.45f, 1f, 0.35f);
     public static readonly Color VoidColor = new(0.015f, 0.02f, 0.06f);
     public static readonly Color ShadowTint = new(0.005f, 0.008f, 0.015f);
+    public static readonly Color Sandstone = new(0.62f, 0.5f, 0.32f);
+    public static readonly Color DarkSandstone = new(0.42f, 0.33f, 0.21f);
+    public static readonly Color CastleStone = new(0.4f, 0.42f, 0.48f);
+    public static readonly Color CastleTrim = new(0.28f, 0.3f, 0.36f);
+    public static readonly Color RoofTile = new(0.5f, 0.12f, 0.16f);
 
     private static readonly Dictionary<(Color, bool), Material> Materials = new();
+    private static Mesh pyramidMesh;
+
+    // Unit square pyramid: base spans -0.5..0.5 on X/Z at y = 0, apex at y = 1. Flat-shaded faces.
+    public static Mesh PyramidMesh()
+    {
+        if (pyramidMesh != null)
+        {
+            return pyramidMesh;
+        }
+
+        var apex = new Vector3(0f, 1f, 0f);
+        var corners = new[]
+        {
+            new Vector3(-0.5f, 0f, -0.5f),
+            new Vector3(0.5f, 0f, -0.5f),
+            new Vector3(0.5f, 0f, 0.5f),
+            new Vector3(-0.5f, 0f, 0.5f)
+        };
+        var vertices = new List<Vector3>();
+        var triangles = new List<int>();
+        for (var i = 0; i < 4; i++)
+        {
+            var start = vertices.Count;
+            vertices.Add(corners[i]);
+            vertices.Add(apex);
+            vertices.Add(corners[(i + 1) % 4]);
+            triangles.AddRange(new[] { start, start + 1, start + 2 });
+        }
+
+        var baseStart = vertices.Count;
+        vertices.AddRange(corners);
+        triangles.AddRange(new[] { baseStart, baseStart + 1, baseStart + 2, baseStart, baseStart + 2, baseStart + 3 });
+
+        pyramidMesh = new Mesh { name = "Pyramid mesh" };
+        pyramidMesh.SetVertices(vertices);
+        pyramidMesh.SetTriangles(triangles, 0);
+        pyramidMesh.RecalculateNormals();
+        pyramidMesh.RecalculateBounds();
+        return pyramidMesh;
+    }
+
+    public static Renderer Pyramid(string name, Transform parent, Vector3 basePosition, Vector3 size, Color color, bool emissive = false)
+    {
+        var renderer = MeshPart(name, parent, basePosition, Vector3.zero, PyramidMesh(), color, emissive);
+        renderer.transform.localScale = size;
+        return renderer;
+    }
     private static readonly Dictionary<(Vector3, float), Mesh> BevelMeshes = new();
     private static readonly Dictionary<(float, float), Mesh> RingMeshes = new();
     private static Material particleMaterial;
