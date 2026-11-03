@@ -36,18 +36,18 @@ jobs:
         with:
           targetPlatform: WebGL
           unityVersion: auto
-          buildName: RiftRunner
+          buildName: SkyfortStrike
           buildsPath: build
 
       - name: Verify WebGL build
         run: |
-          test -s build/WebGL/RiftRunner/index.html
-          touch build/WebGL/RiftRunner/.nojekyll
+          test -s build/WebGL/SkyfortStrike/index.html
+          touch build/WebGL/SkyfortStrike/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5.0.0
         with:
-          path: build/WebGL/RiftRunner
+          path: build/WebGL/SkyfortStrike
           include-hidden-files: true
 
   deploy:
