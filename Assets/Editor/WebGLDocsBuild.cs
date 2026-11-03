@@ -24,7 +24,7 @@ public static class WebGLDocsBuild
 
         var options = new BuildPlayerOptions
         {
-            scenes = new[] { "Assets/Scenes/RiftRunner.unity" },
+            scenes = new[] { "Assets/Scenes/SkyfortStrike.unity" },
             locationPathName = outputPath,
             target = BuildTarget.WebGL,
             options = BuildOptions.None
