@@ -14,7 +14,7 @@ The round countdown and replay delay use Unity 6's built-in `Awaitable` API inst
 4. Collect all eight gold crystals to win. Avoid the moving red sentinels; the run ends when the 60-second timer expires.
 5. Press **R** at any time to restart the countdown. Runs also restart automatically after a win or timeout.
 
-The arena, camera, lighting, character, crystals, and sentinels are created by the scene's `RiftRunner` component when Play mode starts. The space suit and sentinels use original low-poly mesh details built at runtime, while the crystals are custom faceted meshes. These are self-contained showcase models, not imported artist-authored assets; no external assets or packages are required.
+The arena, camera, lighting, character, crystals, sentinels, and perimeter scenery are created by the scene's `RiftRunner` component when Play mode starts. The space suit and sentinels use original low-poly mesh details built at runtime, while the crystals are custom faceted meshes. Perimeter beacon towers, glowing circuits, and scattered deck lights add depth around the arena. These are self-contained showcase models, not imported artist-authored assets; no external assets or packages are required.
 
 ## WebGL build and GitHub Pages
 

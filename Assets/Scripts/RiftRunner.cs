@@ -164,6 +164,7 @@ public sealed class RiftRunner : MonoBehaviour
         lightObject.transform.rotation = Quaternion.Euler(50f, -35f, 0f);
 
         var arena = new GameObject("Arena Architecture").transform;
+        BuildOuterScenery(arena);
         CreateBlock("Arena foundation", arena, new Vector3(0f, -0.3f, 0f), new Vector3(16f, 0.5f, 16f), FloorColor);
         CreateBlock("North barrier", arena, new Vector3(0f, 0.25f, 8f), new Vector3(16f, 1.1f, 0.5f), TrimColor);
         CreateBlock("South barrier", arena, new Vector3(0f, 0.25f, -8f), new Vector3(16f, 1.1f, 0.5f), TrimColor);
@@ -236,6 +237,48 @@ public sealed class RiftRunner : MonoBehaviour
             hazards[i] = CreateGroup($"Sentinel {i + 1}", null, hazardOrigins[i]);
             BuildSentinel(hazards[i]);
         }
+    }
+
+    private void BuildOuterScenery(Transform arena)
+    {
+        CreateBlock("Outer landing deck", arena, new Vector3(0f, -0.72f, 0f), new Vector3(56f, 0.32f, 56f), new Color(0.018f, 0.03f, 0.07f));
+        CreateRingPart("Rift perimeter circuit", arena, new Vector3(0f, -0.015f, 0f), 8.55f, 0.055f, Cyan);
+        CreateRingPart("Outer perimeter circuit", arena, new Vector3(0f, -0.54f, 0f), 10.1f, 0.045f, TrimColor);
+
+        var starColor = new Color(0.38f, 0.62f, 0.9f);
+        for (var x = -14; x <= 14; x += 4)
+        {
+            for (var z = -14; z <= 14; z += 4)
+            {
+                if (Mathf.Abs(x) < 9 && Mathf.Abs(z) < 9)
+                {
+                    continue;
+                }
+
+                var size = ((x * x + z * z) % 3 == 0) ? 0.12f : 0.075f;
+                CreatePart(PrimitiveType.Sphere, "Deck star light", arena, new Vector3(x, -0.51f, z), Vector3.one * size, starColor, true);
+            }
+        }
+
+        BuildScenicTower(arena, new Vector3(-9.4f, -0.38f, -4.5f), Cyan);
+        BuildScenicTower(arena, new Vector3(-9.4f, -0.38f, 4.5f), Gold);
+        BuildScenicTower(arena, new Vector3(9.4f, -0.38f, -4.5f), Red);
+        BuildScenicTower(arena, new Vector3(9.4f, -0.38f, 4.5f), Cyan);
+        BuildScenicTower(arena, new Vector3(-4.5f, -0.38f, 9.4f), Red);
+        BuildScenicTower(arena, new Vector3(4.5f, -0.38f, 9.4f), Gold);
+        BuildScenicTower(arena, new Vector3(-4.5f, -0.38f, -9.4f), Gold);
+        BuildScenicTower(arena, new Vector3(4.5f, -0.38f, -9.4f), Red);
+    }
+
+    private void BuildScenicTower(Transform arena, Vector3 position, Color accent)
+    {
+        var tower = CreateGroup("Perimeter beacon tower", arena, position);
+        CreateBeveledPart("Tower plinth", tower, new Vector3(0f, -0.08f, 0f), new Vector3(1.35f, 0.3f, 1.35f), TrimColor, 0.12f);
+        CreatePart(PrimitiveType.Cylinder, "Tower shaft", tower, new Vector3(0f, 0.8f, 0f), new Vector3(0.25f, 0.95f, 0.25f), TrimColor);
+        CreateRingPart("Tower lower collar", tower, new Vector3(0f, 0.38f, 0f), 0.38f, 0.055f, accent);
+        CreateRingPart("Tower upper collar", tower, new Vector3(0f, 1.3f, 0f), 0.32f, 0.05f, accent);
+        CreateBeveledPart("Tower crown", tower, new Vector3(0f, 1.65f, 0f), new Vector3(0.72f, 0.32f, 0.72f), TrimColor, 0.1f);
+        CreatePart(PrimitiveType.Sphere, "Tower beacon", tower, new Vector3(0f, 1.91f, 0f), Vector3.one * 0.2f, accent, true);
     }
 
     private void BuildSentinel(Transform sentinel)
