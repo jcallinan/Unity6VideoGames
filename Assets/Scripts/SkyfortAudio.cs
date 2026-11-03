@@ -18,7 +18,6 @@ public sealed class SkyfortSounds
     public AudioClip LevelClear;
     public AudioClip GameOver;
     public AudioClip Engine;
-    public AudioClip Bounce;
 }
 
 // Synthesizes every sound in code, so no audio files are needed (WebGL friendly).
@@ -60,12 +59,6 @@ public static class SkyfortAudio
             var f = 420f + 260f * Mathf.Abs(Mathf.Sin(Mathf.PI * 2.5f * t));
             return Square(f, t) * 0.16f * Mathf.Min(t / 0.02f, 1f);
         });
-        var bounce = Synth(0.32f, t =>
-        {
-            // Springy "boing": rising pitch with a fast vibrato.
-            var f = 170f + 520f * t + 30f * Mathf.Sin(2f * Mathf.PI * 28f * t);
-            return Mathf.Exp(-7f * t) * Mathf.Min(t / 0.004f, 1f) * (Mathf.Sin(2f * Mathf.PI * f * t) + 0.3f * Square(f * 0.5f, t)) * 0.35f;
-        });
         var levelClear = Arpeggio(new[] { 392f, 523.25f, 659.25f, 783.99f, 1046.5f, 1318.5f }, 0.1f, 1.2f);
         var gameOver = Arpeggio(new[] { 392f, 329.63f, 261.63f, 196f, 130.81f }, 0.22f, 1.6f);
         var engineState = 0f;
@@ -95,8 +88,7 @@ public static class SkyfortAudio
             BossAlarm = Clip("Boss alarm", bossAlarm),
             LevelClear = Clip("Level clear", levelClear),
             GameOver = Clip("Game over", gameOver),
-            Engine = Clip("Engine", engine),
-            Bounce = Clip("Bounce", bounce)
+            Engine = Clip("Engine", engine)
         };
     }
 
