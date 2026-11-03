@@ -1,6 +1,6 @@
 # Skyfort Strike — Unity 6 Feature Showcase
 
-An isometric, forward-scrolling altitude shooter. Your strike fighter flies itself through a fortress corridor; you steer, climb and dive to get past walls, gates and force fields, and you shoot ground targets at their own height. Destroy fuel tanks to keep flying, survive the open-space drone wave, and take on the Warden, a towering guardian mech, at the end of every level. Each level is faster than the last.
+An isometric, forward-scrolling altitude shooter. Your strike fighter flies itself through a fortress corridor; you steer, climb and dive around pyramids, castles and force fields, and you shoot ground targets at their own height. Destroy fuel tanks to keep flying, survive the open-space drone wave, and take on the Warden, a towering guardian mech, at the end of every level. Each level is faster than the last.
 
 ## Open and play
 
@@ -18,8 +18,9 @@ An isometric, forward-scrolling altitude shooter. Your strike fighter flies itse
 ### How to fly
 
 - **Read your height.** The ALT gauge (left), the ship's ground shadow (it shrinks as you climb) and the glowing rungs on the far rampart all show your altitude.
-- **Walls.** Fly over low walls. Thread tall walls through their gold-framed gate.
-- **Force fields** (pink beams) rise from the floor or hang from the top. Go over or under them.
+- **Pyramids and castles** fill the fortress: pyramid fields and rows, curtain walls with towers, and keeps with a turret on the roof. Fly over or around them. Everything tops out below the ship's ceiling, so climbing high always clears it.
+- **Force fields** (pink beams) rise from the floor. Fly over them.
+- **Bumping into things doesn't cost a ship.** Hit a pyramid, castle, force field or ground target and the fighter bounces off and up, losing ground instead. Enemy fire and running out of fuel still cost a ship.
 - **Your laser fires at your current altitude.** Dive low to hit turrets (150), fuel tanks (300, refuels you) and radar dishes (1000, two hits).
 - **Fuel** burns constantly, except in the Warden arena. When it runs out, you crash.
 - **The Warden.** Hit its glowing red eye before it withdraws, and dodge its plasma spreads. Destroying it awards 5000 × level.
