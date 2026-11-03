@@ -34,6 +34,14 @@ public sealed class RiftRunner : MonoBehaviour
     private Transform playerModel;
     private Rigidbody playerPhysics;
     private Renderer playerBodyRenderer;
+    private AudioSource sfx;
+    private AudioClip pickupClip;
+    private AudioClip warningClip;
+    private AudioClip winClip;
+    private AudioClip loseClip;
+    private float nextWarningTime;
+    private AudioClip beepClip;
+    private AudioClip goClip;
     private int score;
     private float timeRemaining = RoundDuration;
     private float roundStartedAt;
@@ -44,6 +52,7 @@ public sealed class RiftRunner : MonoBehaviour
     private void Start()
     {
         BuildArena();
+        BuildAudio();
         _ = StartRoundAsync(++roundId);
     }
 
@@ -99,12 +108,15 @@ public sealed class RiftRunner : MonoBehaviour
     {
         roundActive = false;
         message = "3";
+        sfx.PlayOneShot(beepClip);
         await Awaitable.WaitForSecondsAsync(1f);
         if (runId != roundId) return;
         message = "2";
+        sfx.PlayOneShot(beepClip);
         await Awaitable.WaitForSecondsAsync(1f);
         if (runId != roundId) return;
         message = "1";
+        sfx.PlayOneShot(beepClip);
         await Awaitable.NextFrameAsync();
         if (runId != roundId) return;
 
@@ -122,6 +134,8 @@ public sealed class RiftRunner : MonoBehaviour
         }
 
         roundActive = true;
+        sfx.pitch = 1f;
+        sfx.PlayOneShot(goClip);
         message = "Collect all 8 energy crystals. Avoid the sentinels!";
     }
 
@@ -134,6 +148,8 @@ public sealed class RiftRunner : MonoBehaviour
 
         roundActive = false;
         message = won ? "RIFT STABILIZED!" : "TIME'S UP — RUN AGAIN!";
+        sfx.pitch = 1f;
+        sfx.PlayOneShot(won ? winClip : loseClip);
         var endedRoundId = roundId;
         await Awaitable.WaitForSecondsAsync(2f);
         if (endedRoundId == roundId)
@@ -237,6 +253,26 @@ public sealed class RiftRunner : MonoBehaviour
             hazards[i] = CreateGroup($"Sentinel {i + 1}", null, hazardOrigins[i]);
             BuildSentinel(hazards[i]);
         }
+    }
+
+    private void BuildAudio()
+    {
+        pickupClip = RiftAudio.Pickup();
+        warningClip = RiftAudio.Warning();
+        winClip = RiftAudio.Win();
+        loseClip = RiftAudio.Lose();
+        beepClip = RiftAudio.Beep(660f);
+        goClip = RiftAudio.Go();
+
+        sfx = gameObject.AddComponent<AudioSource>();
+        sfx.playOnAwake = false;
+        sfx.volume = 0.8f;
+
+        var music = gameObject.AddComponent<AudioSource>();
+        music.clip = RiftAudio.Ambient();
+        music.loop = true;
+        music.volume = 0.35f;
+        music.Play();
     }
 
     private void BuildOuterScenery(Transform arena)
@@ -362,6 +398,8 @@ public sealed class RiftRunner : MonoBehaviour
             {
                 pickups[i].gameObject.SetActive(false);
                 score++;
+                sfx.pitch = 1f + score * 0.04f;
+                sfx.PlayOneShot(pickupClip);
                 if (score >= TargetScore)
                 {
                     EndRound(true);
@@ -379,6 +417,13 @@ public sealed class RiftRunner : MonoBehaviour
             {
                 playerBodyRenderer.material.color = Red;
                 message = "Careful — the sentinels are closing in!";
+                if (Time.time >= nextWarningTime)
+                {
+                    sfx.pitch = 1f;
+                    sfx.PlayOneShot(warningClip);
+                    nextWarningTime = Time.time + 0.45f;
+                }
+
                 return;
             }
         }

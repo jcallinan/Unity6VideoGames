@@ -16,8 +16,19 @@ The round countdown and replay delay use Unity 6's built-in `Awaitable` API inst
 
 The arena, camera, lighting, character, crystals, sentinels, and perimeter scenery are created by the scene's `RiftRunner` component when Play mode starts. The space suit and sentinels use original low-poly mesh details built at runtime, while the crystals are custom faceted meshes. Perimeter beacon towers, glowing circuits, and scattered deck lights add depth around the arena. These are self-contained showcase models, not imported artist-authored assets; no external assets or packages are required.
 
+## Sound
+
+All sound effects and the ambient hum are synthesized in code by `RiftAudio` at startup (crystal chimes that rise in pitch, sentinel proximity warning, countdown beeps, win and time-up jingles), so no audio files are needed.
+
 ## WebGL build and GitHub Pages
 
-The `Build and deploy WebGL` workflow builds the game with Unity 6 and publishes it to [GitHub Pages](https://jcallinan.github.io/Unity6VideoGames/). It runs when changes reach `main` and can also be started manually from the Actions tab. The Pages site is available after its first successful deployment.
+Build locally and publish from the `docs` folder on `main`:
 
-Before the first build, add these repository Actions secrets: `UNITY_LICENSE` (Unity Personal license file contents), `UNITY_EMAIL`, and `UNITY_PASSWORD`. See the [GameCI license activation guide](https://game.ci/docs/github/activation/) to prepare the license. The workflow configures Pages for GitHub Actions on deployment; never commit the license file, password, or secret.
+1. Install Unity **6000.0.23f1** (or newer 6000.x) with the **WebGL Build Support** module.
+2. Open the project and choose **Build → WebGL to docs (GitHub Pages)**. This disables compression (GitHub Pages can't serve Unity's compressed builds) and writes the build to `docs/`.
+3. Commit and push the `docs` folder to `main`.
+4. In **Settings → Pages**, set **Source** to **Deploy from a branch**, then choose `main` and `/docs`.
+
+The site is served at [https://jcallinan.github.io/Unity6VideoGames/](https://jcallinan.github.io/Unity6VideoGames/).
+
+The `Build and deploy WebGL` workflow is an optional, manual-only alternative that builds in CI with GameCI. It needs the `UNITY_LICENSE`, `UNITY_EMAIL`, and `UNITY_PASSWORD` repository secrets (see the [GameCI activation guide](https://game.ci/docs/github/activation/)) and a Pages source of **GitHub Actions**. Never commit a license file, password, or secret.
