@@ -197,19 +197,31 @@ public sealed class RiftRunner : MonoBehaviour
         playerPhysics.interpolation = RigidbodyInterpolation.Interpolate;
         playerPhysics.constraints = RigidbodyConstraints.FreezePositionY | RigidbodyConstraints.FreezeRotation;
         playerModel = CreateGroup("Runner model", player, Vector3.zero);
-        CreatePart(PrimitiveType.Capsule, "Suit", playerModel, new Vector3(0f, 0.58f, 0f), new Vector3(0.43f, 0.58f, 0.35f), TrimColor);
+        CreateBeveledPart("Torso armor", playerModel, new Vector3(0f, 0.62f, 0f), new Vector3(0.72f, 0.76f, 0.48f), TrimColor, 0.12f);
+        CreateBeveledPart("Chest plate", playerModel, new Vector3(0f, 0.79f, -0.26f), new Vector3(0.5f, 0.34f, 0.08f), White, 0.045f);
+        CreateBeveledPart("Chest insignia", playerModel, new Vector3(0f, 0.8f, -0.31f), new Vector3(0.19f, 0.14f, 0.035f), Cyan, 0.025f, true);
+        CreateBeveledPart("Utility belt", playerModel, new Vector3(0f, 0.27f, 0f), new Vector3(0.7f, 0.15f, 0.46f), Cyan, 0.045f);
+        CreateRingPart("Neck seal", playerModel, new Vector3(0f, 1.04f, 0f), 0.23f, 0.045f, TrimColor);
         CreatePart(PrimitiveType.Sphere, "Helmet", playerModel, new Vector3(0f, 1.25f, 0f), new Vector3(0.58f, 0.52f, 0.52f), White);
-        CreatePart(PrimitiveType.Cube, "Visor", playerModel, new Vector3(0f, 1.27f, -0.245f), new Vector3(0.38f, 0.16f, 0.08f), Cyan, true);
-        CreatePart(PrimitiveType.Cube, "Life-support pack", playerModel, new Vector3(0f, 0.68f, 0.34f), new Vector3(0.58f, 0.62f, 0.28f), TrimColor);
-        CreatePart(PrimitiveType.Cube, "Pack light", playerModel, new Vector3(0f, 0.77f, 0.49f), new Vector3(0.2f, 0.1f, 0.06f), Cyan, true);
+        CreateBeveledPart("Visor frame", playerModel, new Vector3(0f, 1.27f, -0.24f), new Vector3(0.44f, 0.2f, 0.11f), TrimColor, 0.07f);
+        CreateBeveledPart("Visor", playerModel, new Vector3(0f, 1.28f, -0.3f), new Vector3(0.34f, 0.11f, 0.035f), Cyan, 0.04f, true);
+        CreateBeveledPart("Life-support pack", playerModel, new Vector3(0f, 0.68f, 0.34f), new Vector3(0.58f, 0.62f, 0.28f), TrimColor, 0.08f);
+        CreateBeveledPart("Pack light", playerModel, new Vector3(0f, 0.77f, 0.5f), new Vector3(0.2f, 0.1f, 0.04f), Cyan, 0.025f, true);
+        CreatePart(PrimitiveType.Cylinder, "Left oxygen canister", playerModel, new Vector3(-0.2f, 0.69f, 0.52f), new Vector3(0.1f, 0.25f, 0.1f), White);
+        CreatePart(PrimitiveType.Cylinder, "Right oxygen canister", playerModel, new Vector3(0.2f, 0.69f, 0.52f), new Vector3(0.1f, 0.25f, 0.1f), White);
 
         for (var side = -1; side <= 1; side += 2)
         {
-            CreatePart(PrimitiveType.Sphere, "Shoulder guard", playerModel, new Vector3(side * 0.46f, 0.79f, 0f), new Vector3(0.28f, 0.26f, 0.32f), Cyan);
+            CreateBeveledPart("Shoulder guard", playerModel, new Vector3(side * 0.46f, 0.79f, 0f), new Vector3(0.3f, 0.32f, 0.36f), Cyan, 0.09f);
             CreatePart(PrimitiveType.Capsule, "Arm", playerModel, new Vector3(side * 0.5f, 0.36f, 0f), new Vector3(0.17f, 0.4f, 0.17f), White, false, new Vector3(0f, 0f, side * -10f));
-            CreatePart(PrimitiveType.Capsule, "Boot", playerModel, new Vector3(side * 0.19f, 0.03f, 0f), new Vector3(0.17f, 0.34f, 0.2f), TrimColor);
+            CreateBeveledPart("Forearm gauntlet", playerModel, new Vector3(side * 0.55f, 0.3f, -0.025f), new Vector3(0.2f, 0.22f, 0.22f), TrimColor, 0.05f);
+            CreateRingPart("Wrist seal", playerModel, new Vector3(side * 0.56f, 0.2f, 0f), 0.13f, 0.025f, Cyan, new Vector3(0f, 0f, 90f));
+            CreateBeveledPart("Boot", playerModel, new Vector3(side * 0.19f, 0.03f, -0.035f), new Vector3(0.22f, 0.36f, 0.3f), TrimColor, 0.06f);
+            CreateBeveledPart("Boot sole", playerModel, new Vector3(side * 0.19f, -0.16f, -0.045f), new Vector3(0.24f, 0.07f, 0.32f), Cyan, 0.025f);
+            CreateRingPart("Helmet comms", playerModel, new Vector3(side * 0.3f, 1.25f, 0f), 0.11f, 0.045f, TrimColor, new Vector3(0f, 0f, 90f));
+            CreatePart(PrimitiveType.Sphere, "Comms beacon", playerModel, new Vector3(side * 0.37f, 1.26f, -0.015f), Vector3.one * 0.09f, Cyan, true);
         }
-        playerBodyRenderer = playerModel.Find("Suit").GetComponent<Renderer>();
+        playerBodyRenderer = playerModel.Find("Torso armor").GetComponent<Renderer>();
 
         for (var i = 0; i < pickups.Length; i++)
         {
@@ -228,15 +240,22 @@ public sealed class RiftRunner : MonoBehaviour
 
     private void BuildSentinel(Transform sentinel)
     {
-        CreatePart(PrimitiveType.Sphere, "Sentinel core", sentinel, Vector3.zero, new Vector3(0.72f, 0.52f, 0.72f), TrimColor);
-        CreatePart(PrimitiveType.Sphere, "Core lens", sentinel, new Vector3(0f, 0f, -0.34f), new Vector3(0.38f, 0.28f, 0.12f), Red, true);
-        CreatePart(PrimitiveType.Cube, "Top armor", sentinel, new Vector3(0f, 0.3f, 0f), new Vector3(0.45f, 0.16f, 0.48f), Red);
+        CreateBeveledPart("Sentinel hull", sentinel, Vector3.zero, new Vector3(0.9f, 0.56f, 0.72f), TrimColor, 0.14f);
+        CreateRingPart("Optic housing", sentinel, new Vector3(0f, 0.02f, -0.37f), 0.23f, 0.07f, Red, new Vector3(90f, 0f, 0f));
+        CreatePart(PrimitiveType.Sphere, "Core lens", sentinel, new Vector3(0f, 0.02f, -0.415f), new Vector3(0.32f, 0.24f, 0.08f), Red, true);
+        CreateBeveledPart("Top armor", sentinel, new Vector3(0f, 0.3f, 0f), new Vector3(0.5f, 0.16f, 0.48f), Red, 0.045f);
+        CreateBeveledPart("Rear engine block", sentinel, new Vector3(0f, 0f, 0.42f), new Vector3(0.48f, 0.35f, 0.22f), TrimColor, 0.06f);
 
         for (var side = -1; side <= 1; side += 2)
         {
-            CreatePart(PrimitiveType.Cube, "Wing", sentinel, new Vector3(side * 0.64f, 0f, 0.04f), new Vector3(0.72f, 0.12f, 0.3f), TrimColor, false, new Vector3(0f, side * -12f, side * -8f));
-            CreatePart(PrimitiveType.Sphere, "Wing light", sentinel, new Vector3(side * 0.88f, 0f, -0.02f), Vector3.one * 0.14f, Red, true);
+            CreateBeveledPart("Armored wing", sentinel, new Vector3(side * 0.64f, 0f, 0.04f), new Vector3(0.78f, 0.16f, 0.34f), TrimColor, 0.05f, false, new Vector3(0f, side * -12f, side * -8f));
+            CreatePart(PrimitiveType.Sphere, "Wing light", sentinel, new Vector3(side * 0.96f, 0f, -0.02f), Vector3.one * 0.14f, Red, true);
+            CreateRingPart("Engine nozzle", sentinel, new Vector3(side * 0.64f, 0f, 0.24f), 0.12f, 0.035f, Cyan, new Vector3(90f, 0f, 0f));
+            CreatePart(PrimitiveType.Cylinder, "Engine thruster", sentinel, new Vector3(side * 0.64f, 0f, 0.3f), new Vector3(0.11f, 0.13f, 0.11f), Cyan, true, new Vector3(90f, 0f, 0f));
         }
+
+        CreatePart(PrimitiveType.Cylinder, "Sensor mast", sentinel, new Vector3(0f, 0.43f, 0.1f), new Vector3(0.04f, 0.16f, 0.04f), White);
+        CreatePart(PrimitiveType.Sphere, "Sensor beacon", sentinel, new Vector3(0f, 0.62f, 0.1f), Vector3.one * 0.11f, Red, true);
     }
 
     private void MovePlayer()
@@ -364,6 +383,156 @@ public sealed class RiftRunner : MonoBehaviour
         }
     }
 
+    private void CreateBeveledPart(
+        string objectName,
+        Transform parent,
+        Vector3 localPosition,
+        Vector3 size,
+        Color color,
+        float bevel,
+        bool emissive = false,
+        Vector3 localEulerAngles = default)
+    {
+        var part = new GameObject(objectName);
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localEulerAngles = localEulerAngles;
+        var filter = part.AddComponent<MeshFilter>();
+        filter.sharedMesh = CreateBeveledBoxMesh(size, bevel);
+        part.AddComponent<MeshRenderer>().sharedMaterial = GetMaterial(color, emissive);
+    }
+
+    private void CreateRingPart(
+        string objectName,
+        Transform parent,
+        Vector3 localPosition,
+        float radius,
+        float thickness,
+        Color color,
+        Vector3 localEulerAngles = default)
+    {
+        var ring = new GameObject(objectName);
+        ring.transform.SetParent(parent, false);
+        ring.transform.localPosition = localPosition;
+        ring.transform.localEulerAngles = localEulerAngles;
+        var filter = ring.AddComponent<MeshFilter>();
+        filter.sharedMesh = CreateRingMesh(radius, thickness);
+        ring.AddComponent<MeshRenderer>().sharedMaterial = GetMaterial(color, color == Cyan || color == Red);
+    }
+
+    private static Mesh CreateBeveledBoxMesh(Vector3 size, float bevel)
+    {
+        var half = size * 0.5f;
+        var cut = Mathf.Clamp(bevel, 0.001f, Mathf.Min(size.x, size.y) * 0.45f);
+        var outline = new[]
+        {
+            new Vector2(-half.x + cut, -half.y),
+            new Vector2(half.x - cut, -half.y),
+            new Vector2(half.x, -half.y + cut),
+            new Vector2(half.x, half.y - cut),
+            new Vector2(half.x - cut, half.y),
+            new Vector2(-half.x + cut, half.y),
+            new Vector2(-half.x, half.y - cut),
+            new Vector2(-half.x, -half.y + cut)
+        };
+        var vertices = new List<Vector3>(50);
+        var triangles = new List<int>(84);
+
+        AddFlatFace(vertices, triangles, outline, half.z, false);
+        AddFlatFace(vertices, triangles, outline, -half.z, true);
+
+        for (var i = 0; i < outline.Length; i++)
+        {
+            var next = (i + 1) % outline.Length;
+            var start = vertices.Count;
+            vertices.Add(new Vector3(outline[i].x, outline[i].y, half.z));
+            vertices.Add(new Vector3(outline[i].x, outline[i].y, -half.z));
+            vertices.Add(new Vector3(outline[next].x, outline[next].y, -half.z));
+            vertices.Add(new Vector3(outline[next].x, outline[next].y, half.z));
+            triangles.Add(start);
+            triangles.Add(start + 1);
+            triangles.Add(start + 2);
+            triangles.Add(start);
+            triangles.Add(start + 2);
+            triangles.Add(start + 3);
+        }
+
+        var mesh = new Mesh { name = "Beveled armor mesh" };
+        mesh.SetVertices(vertices);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private static void AddFlatFace(List<Vector3> vertices, List<int> triangles, Vector2[] outline, float z, bool reverse)
+    {
+        var center = Vector3.zero;
+        center.z = z;
+        var first = vertices.Count;
+        vertices.Add(center);
+        for (var i = 0; i < outline.Length; i++)
+        {
+            vertices.Add(new Vector3(outline[i].x, outline[i].y, z));
+        }
+
+        for (var i = 0; i < outline.Length; i++)
+        {
+            var current = first + 1 + i;
+            var next = first + 1 + (i + 1) % outline.Length;
+            if (reverse)
+            {
+                triangles.Add(first);
+                triangles.Add(next);
+                triangles.Add(current);
+            }
+            else
+            {
+                triangles.Add(first);
+                triangles.Add(current);
+                triangles.Add(next);
+            }
+        }
+    }
+
+    private static Mesh CreateRingMesh(float radius, float thickness)
+    {
+        const int radialSegments = 12;
+        const int tubeSegments = 6;
+        var vertices = new Vector3[radialSegments * tubeSegments];
+        var triangles = new int[radialSegments * tubeSegments * 6];
+        for (var radial = 0; radial < radialSegments; radial++)
+        {
+            var around = radial * Mathf.PI * 2f / radialSegments;
+            for (var tube = 0; tube < tubeSegments; tube++)
+            {
+                var section = tube * Mathf.PI * 2f / tubeSegments;
+                var ringRadius = radius + Mathf.Cos(section) * thickness;
+                vertices[radial * tubeSegments + tube] = new Vector3(
+                    Mathf.Cos(around) * ringRadius,
+                    Mathf.Sin(section) * thickness,
+                    Mathf.Sin(around) * ringRadius);
+
+                var nextRadial = (radial + 1) % radialSegments;
+                var nextTube = (tube + 1) % tubeSegments;
+                var triangle = (radial * tubeSegments + tube) * 6;
+                triangles[triangle] = radial * tubeSegments + tube;
+                triangles[triangle + 1] = radial * tubeSegments + nextTube;
+                triangles[triangle + 2] = nextRadial * tubeSegments + tube;
+                triangles[triangle + 3] = radial * tubeSegments + nextTube;
+                triangles[triangle + 4] = nextRadial * tubeSegments + nextTube;
+                triangles[triangle + 5] = nextRadial * tubeSegments + tube;
+            }
+        }
+
+        var mesh = new Mesh { name = "Segmented ring mesh" };
+        mesh.vertices = vertices;
+        mesh.triangles = triangles;
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
     private void CreateBlock(string objectName, Transform parent, Vector3 position, Vector3 scale, Color color)
     {
         CreatePart(PrimitiveType.Cube, objectName, parent, position, scale, color);
@@ -385,8 +554,8 @@ public sealed class RiftRunner : MonoBehaviour
         };
         mesh.triangles = new[]
         {
-            0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1,
-            5, 2, 1, 5, 3, 2, 5, 4, 3, 5, 1, 4
+            0, 2, 1, 0, 3, 2, 0, 4, 3, 0, 1, 4,
+            5, 1, 2, 5, 2, 3, 5, 3, 4, 5, 4, 1
         };
         mesh.RecalculateNormals();
         var filter = crystal.AddComponent<MeshFilter>();
