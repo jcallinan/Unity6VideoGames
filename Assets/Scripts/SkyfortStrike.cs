@@ -13,7 +13,7 @@ using Random = UnityEngine.Random;
 // prefabs; this component only references them (see the Inspector). Only the level itself is streamed in at
 // runtime, chunk by chunk, under the "Level" object. Rebuild those scene objects and prefabs with
 // Skyfort > Rebuild Scene and Prefabs (Assets/Editor/SkyfortSceneBuilder.cs).
-public sealed class SkyfortStrike : MonoBehaviour
+public sealed partial class SkyfortStrike : MonoBehaviour
 {
     private const float CorridorHalfWidth = 6.2f;
     private const float WallHalfWidth = 8f;
@@ -25,7 +25,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     private const float DespawnBehind = 30f;
     private const float BaseSpeed = 13f;
     private const float FuelMax = 100f;
-    private const float FuelDrain = 3.4f;
+    private const float FuelDrain = 3f;
     private const float FuelRefill = 32f;
     private const int StartingShips = 3;
     private const float LaserSpeed = 50f;
@@ -38,7 +38,7 @@ public sealed class SkyfortStrike : MonoBehaviour
 
     private static readonly Vector3 ShipHalf = new(0.7f, 0.28f, 0.8f);
 
-    private enum ChunkKind { Entry, FieldLow, Pyramids, PyramidRow, CastleWall, CastleKeep, TurretRow, FuelDepot, RadarSite, Mixed, Exit, Space, Arena, BossArena, Open, Drift }
+    private enum ChunkKind { Entry, FieldLow, Pyramids, PyramidRow, CastleWall, CastleKeep, TurretRow, FuelDepot, RadarSite, Mixed, Exit, Space, Arena, BossArena, Open, Drift, Obelisks, IceSpires }
     private enum TargetKind { Turret, FuelTank, Radar, Drone }
     private enum Phase { Loading, Countdown, Playing, Respawning, GameOver }
 
@@ -47,6 +47,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         public Transform Root;
         public float StartZ;
         public bool Space;
+        public SkyfortTheme Theme;
     }
 
     private struct Solid
@@ -84,11 +85,13 @@ public sealed class SkyfortStrike : MonoBehaviour
     private readonly List<Target> targets = new();
     private readonly List<Projectile> lasers = new();
     private readonly List<Projectile> bolts = new();
-    private readonly Queue<ChunkKind> plan = new();
+    private readonly Queue<(ChunkKind Kind, SkyfortTheme Theme)> plan = new();
     private readonly SkyfortHudState hud = new();
 
     [Header("Scene objects")]
     [SerializeField] private Camera view;
+    [Tooltip("Retro display filter on the camera (16-BIT / CRT / ARCADE / MODERN, cycled with F).")]
+    [SerializeField] private SkyfortRetroFilter retroFilter;
     [SerializeField] private Rigidbody shipBody;
     [SerializeField] private Transform shipModel;
     [SerializeField] private Transform shipShadow;
@@ -149,6 +152,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     private Vector3 bounce;
     private float nextBounceFx;
     private bool safeSpace;
+    private SkyfortTheme lastTheme = SkyfortThemes.Skyfort;
     private Vector2 steer;
 
     // Game logic reads the physics position; the transform is interpolated for smooth visuals only.
@@ -171,6 +175,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         }
 
         Check(view, nameof(view));
+        Check(retroFilter, nameof(retroFilter));
         Check(shipBody, nameof(shipBody));
         Check(shipModel, nameof(shipModel));
         Check(shipShadow, nameof(shipShadow));
@@ -193,6 +198,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         Check(laserPrefab, nameof(laserPrefab));
         Check(boltPrefab, nameof(boltPrefab));
         Check(forceFieldMaterial, nameof(forceFieldMaterial));
+        CheckPowerUpReferences(Check);
         if (missing.Count == 0) return true;
 
         Debug.LogError($"SkyfortStrike is missing scene references ({string.Join(", ", missing)}). " +
@@ -245,6 +251,11 @@ public sealed class SkyfortStrike : MonoBehaviour
             return;
         }
 
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            ShowToast($"DISPLAY: {SkyfortRetroFilter.Label(retroFilter.Cycle())}", Cyan);
+        }
+
         if (Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.Escape))
         {
             paused = !paused;
@@ -272,6 +283,8 @@ public sealed class SkyfortStrike : MonoBehaviour
             UpdateTargets();
             UpdateBoss();
             CheckShipCollisions();
+            UpdatePickups();
+            UpdatePowerUps();
         }
 
         StreamLevel();
@@ -343,11 +356,13 @@ public sealed class SkyfortStrike : MonoBehaviour
         invulnerableUntil = 0f;
         safeChunks = 0;
         spawnZ = -10f;
+        lastTheme = SkyfortThemes.ForLevel(level);
         StreamLevel();
+        UpdateAtmosphere(true);
 
         try
         {
-            await CountdownAsync(id, $"LEVEL {level}");
+            await CountdownAsync(id, $"LEVEL {level}  -  {lastTheme.Name}");
         }
         catch (OperationCanceledException)
         {
@@ -439,6 +454,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         shipBody.linearVelocity = Vector3.zero;
         fuel = FuelMax;
         nextFire = 0f;
+        ResetPowerUps();
         foreach (var bolt in bolts)
         {
             Deactivate(bolt);
@@ -486,7 +502,11 @@ public sealed class SkyfortStrike : MonoBehaviour
 
         hud.BossVisible = bossActive;
         hud.BossHealth = bossMaxHealth > 0 ? (float)bossHealth / bossMaxHealth : 0f;
-        hud.Zone = bossActive ? "WARDEN" : CurrentChunk()?.Space == true ? "OPEN SPACE" : "SKYFORT";
+        var chunk = CurrentChunk();
+        var theme = chunk?.Theme ?? lastTheme;
+        hud.Zone = bossActive ? "WARDEN" : chunk?.Space == true ? theme.MidZoneName : theme.Name;
+        hud.Hull = (float)Mathf.Max(hull, 0) / HullMax;
+        hud.LowHull = hull <= 1;
     }
 
     // ---------------------------------------------------------------- Ship
@@ -508,15 +528,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         var firing = Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.J) || Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.LeftControl);
         if (firing && Time.time >= nextFire)
         {
-            nextFire = Time.time + FireInterval;
-            var laser = Take(lasers);
-            if (laser != null)
-            {
-                laser.Transform.position = ShipPosition + new Vector3(0f, 0f, 1.2f);
-                laser.Velocity = new Vector3(0f, 0f, LaserSpeed + speed);
-                laser.Life = LaserRange / LaserSpeed;
-                sfx.PlayOneShot(sounds.Laser, 0.55f);
-            }
+            FireLasers();
         }
 
         // Fuel only burns in the fortress and open space; the Warden arena has no depots, so it is exempt.
@@ -696,7 +708,7 @@ public sealed class SkyfortStrike : MonoBehaviour
             if (phase == Phase.Playing && Time.time >= invulnerableUntil && shipBounds.Contains(position))
             {
                 Deactivate(bolt);
-                CrashAsync("SHOT DOWN");
+                TakeHit(position);
             }
         }
     }
@@ -920,6 +932,7 @@ public sealed class SkyfortStrike : MonoBehaviour
                 break;
         }
 
+        MaybeDropPickup(target);
         Destroy(target.Transform.gameObject);
     }
 
@@ -1049,7 +1062,8 @@ public sealed class SkyfortStrike : MonoBehaviour
         speed = BaseSpeed * (1f + (level - 1) * 0.1f);
         TrimChunksBeyond(ShipPosition.z + 40f);
         EnqueueLevel(level);
-        _ = FlashBannerAsync(runId, defeated ? "WARDEN DESTROYED" : $"LEVEL {level}", defeated ? $"+{5000 * (level - 1)}  -  Level {level} ahead" : "Speed increasing");
+        var next = SkyfortThemes.ForLevel(level);
+        _ = FlashBannerAsync(runId, defeated ? "WARDEN DESTROYED" : $"LEVEL {level}", defeated ? $"+{5000 * (level - 1)}  -  Level {level}: {next.Name}" : $"Next: {next.Name} - {next.Tagline}");
     }
 
     private async Awaitable BossDeathAsync(int id, Vector3 position)
@@ -1105,22 +1119,42 @@ public sealed class SkyfortStrike : MonoBehaviour
 
     private void EnqueueLevel(int number)
     {
-        var fortressA = new[] { ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite };
-        var fortressB = new[] { ChunkKind.Pyramids, ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.FieldLow };
-
-        plan.Enqueue(ChunkKind.Arena);
-        plan.Enqueue(ChunkKind.Entry);
-        AddFortress(fortressA, 6 + number);
-        plan.Enqueue(ChunkKind.Exit);
-        for (var i = 0; i < 4 + number; i++)
+        // Each level has its own theme and obstacle mix: first half, a mid-level drone zone, second half, then the Warden.
+        var theme = SkyfortThemes.ForLevel(number);
+        ChunkKind[] firstHalf;
+        ChunkKind[] secondHalf;
+        if (theme == SkyfortThemes.DuneRuins)
         {
-            plan.Enqueue(ChunkKind.Space);
+            firstHalf = new[] { ChunkKind.Pyramids, ChunkKind.Obelisks, ChunkKind.PyramidRow, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.Obelisks, ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.CastleKeep, ChunkKind.PyramidRow, ChunkKind.TurretRow, ChunkKind.Mixed, ChunkKind.RadarSite };
+        }
+        else if (theme == SkyfortThemes.IceCitadel)
+        {
+            firstHalf = new[] { ChunkKind.IceSpires, ChunkKind.CastleWall, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.IceSpires, ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.FieldLow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite };
+        }
+        else
+        {
+            firstHalf = new[] { ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite };
+            secondHalf = new[] { ChunkKind.Pyramids, ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.FieldLow };
         }
 
-        plan.Enqueue(ChunkKind.Entry);
-        AddFortress(fortressB, 7 + number);
-        plan.Enqueue(ChunkKind.Exit);
-        plan.Enqueue(ChunkKind.BossArena);
+        var extra = Mathf.Min(number, 4);
+        Add(ChunkKind.Arena);
+        Add(ChunkKind.Entry);
+        AddFortress(firstHalf, 6 + extra);
+        Add(ChunkKind.Exit);
+        for (var i = 0; i < 4 + extra; i++)
+        {
+            Add(ChunkKind.Space);
+        }
+
+        Add(ChunkKind.Entry);
+        AddFortress(secondHalf, 7 + extra);
+        Add(ChunkKind.Exit);
+        Add(ChunkKind.BossArena);
+
+        void Add(ChunkKind kind) => plan.Enqueue((kind, theme));
 
         void AddFortress(ChunkKind[] pool, int count)
         {
@@ -1138,7 +1172,7 @@ public sealed class SkyfortStrike : MonoBehaviour
                     while (next == last);
                 }
 
-                plan.Enqueue(next);
+                Add(next);
                 last = next;
             }
         }
@@ -1151,6 +1185,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         while (spawnZ < shipZ + SpawnAhead)
         {
             ChunkKind kind;
+            var theme = lastTheme;
             if (safeChunks > 0)
             {
                 safeChunks--;
@@ -1158,14 +1193,15 @@ public sealed class SkyfortStrike : MonoBehaviour
             }
             else if (plan.Count > 0)
             {
-                kind = plan.Dequeue();
+                (kind, theme) = plan.Dequeue();
             }
             else
             {
                 kind = ChunkKind.Arena;
             }
 
-            BuildChunk(kind, spawnZ);
+            lastTheme = theme;
+            BuildChunk(kind, theme, spawnZ);
             spawnZ += ChunkLength;
         }
 
@@ -1214,6 +1250,7 @@ public sealed class SkyfortStrike : MonoBehaviour
         chunks.Remove(chunk);
         solids.RemoveAll(s => s.Chunk == chunk);
         targets.RemoveAll(t => t.Chunk == chunk);
+        pickups.RemoveAll(p => p.Chunk == chunk);
         Destroy(chunk.Root.gameObject);
     }
 
@@ -1225,13 +1262,14 @@ public sealed class SkyfortStrike : MonoBehaviour
         }
     }
 
-    private void BuildChunk(ChunkKind kind, float z0)
+    private void BuildChunk(ChunkKind kind, SkyfortTheme theme, float z0)
     {
         var chunk = new Chunk
         {
-            Root = Group($"Chunk {kind} @ {z0:0}", levelRoot, new Vector3(0f, 0f, z0)),
+            Root = Group($"{theme.Name} {kind} @ {z0:0}", levelRoot, new Vector3(0f, 0f, z0)),
             StartZ = z0,
-            Space = kind is ChunkKind.Space or ChunkKind.Drift
+            Space = kind is ChunkKind.Space or ChunkKind.Drift,
+            Theme = theme
         };
         chunks.Add(chunk);
         var mid = z0 + ChunkLength * 0.5f;
@@ -1254,8 +1292,8 @@ public sealed class SkyfortStrike : MonoBehaviour
                 BuildTower(chunk, 6.9f, z0 + 8f, 0.95f, 4.8f);
                 break;
             case ChunkKind.Exit:
-                BuildPyramid(chunk, -3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
-                BuildPyramid(chunk, 3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
+                BuildLandmark(chunk, -3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
+                BuildLandmark(chunk, 3.6f, z0 + 11f, 4.6f, Random.Range(3f, 5f));
                 AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 4f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Pyramids:
@@ -1294,6 +1332,25 @@ public sealed class SkyfortStrike : MonoBehaviour
             case ChunkKind.CastleKeep:
                 BuildKeep(chunk, Random.Range(-3f, 3f), z0 + 9f);
                 break;
+            case ChunkKind.Obelisks:
+            {
+                // Tall stone needles in two staggered rows: weave between them or climb over the caps.
+                for (var i = 0; i < 4; i++)
+                {
+                    var x = (i % 2 == 0 ? -1f : 1f) * Random.Range(1.2f, 4.6f);
+                    BuildObelisk(chunk, x, z0 + 3.5f + i * 3.8f, Random.Range(4.6f, 6.1f));
+                }
+
+                AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-1f, 1f), 0f, z0 + 9f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
+                break;
+            }
+            case ChunkKind.IceSpires:
+                for (var i = 0; i < 3 + Mathf.Min(level, 3) / 2; i++)
+                {
+                    BuildSpire(chunk, Random.Range(-5f, 5f), z0 + 3f + i * 4.2f, Random.Range(1.6f, 2.6f), Random.Range(3.4f, 6.1f));
+                }
+
+                break;
             case ChunkKind.FieldLow:
                 BuildField(chunk, z0 + 9f, 0f, Random.Range(2.6f, 4.6f));
                 break;
@@ -1314,7 +1371,7 @@ public sealed class SkyfortStrike : MonoBehaviour
                 AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 3f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
             case ChunkKind.Mixed:
-                BuildPyramid(chunk, Random.Range(-4f, 4f), z0 + 5f, 4f, Random.Range(3f, 5f));
+                BuildLandmark(chunk, Random.Range(-4f, 4f), z0 + 5f, 4f, Random.Range(3f, 5f));
                 AddTarget(chunk, TargetKind.FuelTank, fuelTankPrefab, new Vector3(Random.Range(-4f, 4f), 0f, z0 + 10f), new Vector3(0.75f, 0.9f, 0.75f), 0.9f, 1, 300);
                 AddTarget(chunk, TargetKind.Turret, turretPrefab, new Vector3(Random.Range(-5f, 5f), 0f, z0 + 15f), new Vector3(0.7f, 0.65f, 0.7f), 0.65f, 1, 150);
                 break;
@@ -1331,6 +1388,64 @@ public sealed class SkyfortStrike : MonoBehaviour
                 bossTriggerZ = z0;
                 break;
         }
+
+        // Free-floating power-ups: common in the obstacle sections, occasional in the drone zones.
+        var pickupChance = kind switch
+        {
+            ChunkKind.Space => 0.3f,
+            ChunkKind.Arena or ChunkKind.BossArena or ChunkKind.Open or ChunkKind.Drift or ChunkKind.Entry => 0f,
+            _ => 0.35f
+        };
+        if (Random.value < pickupChance)
+        {
+            SpawnPickup(chunk, RandomPickupKind(), new Vector3(Random.Range(-4.5f, 4.5f), Random.Range(1.4f, 4.8f), z0 + 16f));
+        }
+    }
+
+    // Skyfort and Dune Ruins use pyramids for landmarks; the Ice Citadel uses ice spires.
+    private void BuildLandmark(Chunk chunk, float x, float z, float baseSize, float height)
+    {
+        if (chunk.Theme == SkyfortThemes.IceCitadel)
+        {
+            BuildSpire(chunk, x, z, baseSize * 0.5f, height + 1f);
+        }
+        else
+        {
+            BuildPyramid(chunk, x, z, baseSize, height);
+        }
+    }
+
+    private void BuildObelisk(Chunk chunk, float x, float z, float height)
+    {
+        var theme = chunk.Theme;
+        var obelisk = Group("Obelisk", chunk.Root, new Vector3(x, 0f, z - chunk.StartZ));
+        const float width = 0.9f;
+        var shaft = height - 0.7f;
+        Part(PrimitiveType.Cube, "Obelisk base", obelisk, new Vector3(0f, 0.15f, 0f), new Vector3(width + 0.5f, 0.3f, width + 0.5f), theme.StoneBase);
+        Part(PrimitiveType.Cube, "Obelisk shaft", obelisk, new Vector3(0f, shaft * 0.5f, 0f), new Vector3(width, shaft, width), theme.StoneMain);
+        Pyramid("Obelisk cap", obelisk, new Vector3(0f, shaft, 0f), new Vector3(width, 0.7f, width), theme.StoneGlow, true);
+        for (var y = 1f; y < shaft - 0.6f; y += 1.1f)
+        {
+            Part(PrimitiveType.Cube, "Glyph", obelisk, new Vector3(0f, y, -width * 0.5f - 0.01f), new Vector3(0.3f, 0.5f, 0.02f), theme.StoneBase);
+        }
+
+        AddBox(chunk, new Vector3(x, height * 0.5f, z), new Vector3(width, height, width));
+    }
+
+    private void BuildSpire(Chunk chunk, float x, float z, float baseSize, float height)
+    {
+        var theme = chunk.Theme;
+        var local = new Vector3(x, 0f, z - chunk.StartZ);
+        Pyramid("Ice spire", chunk.Root, local, new Vector3(baseSize, height, baseSize), theme.StoneMain);
+        Pyramid("Ice spire inner", chunk.Root, local + new Vector3(baseSize * 0.18f, 0f, -baseSize * 0.12f), new Vector3(baseSize * 0.6f, height * 0.72f, baseSize * 0.6f), theme.StoneBase);
+        var cap = 0.2f;
+        Pyramid("Spire tip", chunk.Root, local + new Vector3(0f, height * (1f - cap), 0f), new Vector3(baseSize * cap * 1.05f, height * cap * 1.05f, baseSize * cap * 1.05f), theme.StoneGlow, true);
+        solids.Add(new Solid
+        {
+            Bounds = new Bounds(new Vector3(x, height * 0.5f, z), new Vector3(baseSize, height, baseSize)),
+            Chunk = chunk,
+            Pyramid = true
+        });
     }
 
     // Every obstacle tops out below MaxAltitude, so flying high always clears it; flying around works too.
@@ -1343,13 +1458,13 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var root = chunk.Root;
         var local = new Vector3(x, 0f, z - chunk.StartZ);
-        Part(PrimitiveType.Cube, "Pyramid plinth", root, local + new Vector3(0f, 0.1f, 0f), new Vector3(baseSize + 0.5f, 0.2f, baseSize + 0.5f), DarkSandstone);
-        Pyramid("Pyramid", root, local + new Vector3(0f, 0.2f, 0f), new Vector3(baseSize, height - 0.2f, baseSize), Sandstone);
+        Part(PrimitiveType.Cube, "Pyramid plinth", root, local + new Vector3(0f, 0.1f, 0f), new Vector3(baseSize + 0.5f, 0.2f, baseSize + 0.5f), chunk.Theme.StoneBase);
+        Pyramid("Pyramid", root, local + new Vector3(0f, 0.2f, 0f), new Vector3(baseSize, height - 0.2f, baseSize), chunk.Theme.StoneMain);
         // Glowing capstone (the top 15% of the same slope) and a band of light around the plinth.
         var cap = 0.15f;
-        Pyramid("Capstone", root, local + new Vector3(0f, 0.2f + (height - 0.2f) * (1f - cap), 0f), new Vector3(baseSize * cap * 1.04f, (height - 0.2f) * cap * 1.04f, baseSize * cap * 1.04f), Gold, true);
-        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3(0f, 0.2f, -(baseSize + 0.5f) * 0.5f - 0.01f), new Vector3(baseSize + 0.5f, 0.05f, 0.03f), Gold, true);
-        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3((baseSize + 0.5f) * 0.5f + 0.01f, 0.2f, 0f), new Vector3(0.03f, 0.05f, baseSize + 0.5f), Gold, true);
+        Pyramid("Capstone", root, local + new Vector3(0f, 0.2f + (height - 0.2f) * (1f - cap), 0f), new Vector3(baseSize * cap * 1.04f, (height - 0.2f) * cap * 1.04f, baseSize * cap * 1.04f), chunk.Theme.StoneGlow, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3(0f, 0.2f, -(baseSize + 0.5f) * 0.5f - 0.01f), new Vector3(baseSize + 0.5f, 0.05f, 0.03f), chunk.Theme.StoneGlow, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3((baseSize + 0.5f) * 0.5f + 0.01f, 0.2f, 0f), new Vector3(0.03f, 0.05f, baseSize + 0.5f), chunk.Theme.StoneGlow, true);
         solids.Add(new Solid
         {
             Bounds = new Bounds(new Vector3(x, height * 0.5f, z), new Vector3(baseSize, height, baseSize)),
@@ -1362,14 +1477,14 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var tower = Group("Castle tower", chunk.Root, new Vector3(x, 0f, z - chunk.StartZ));
         var body = height - 1.2f;
-        Part(PrimitiveType.Cylinder, "Tower body", tower, new Vector3(0f, body * 0.5f, 0f), new Vector3(radius * 2f, body * 0.5f, radius * 2f), CastleStone);
-        Part(PrimitiveType.Cylinder, "Tower parapet", tower, new Vector3(0f, body + 0.06f, 0f), new Vector3(radius * 2.35f, 0.1f, radius * 2.35f), CastleTrim);
-        Pyramid("Tower roof", tower, new Vector3(0f, body + 0.15f, 0f), new Vector3(radius * 2.1f, 1f, radius * 2.1f), RoofTile);
-        Part(PrimitiveType.Sphere, "Roof beacon", tower, new Vector3(0f, body + 1.18f, 0f), Vector3.one * 0.18f, Gold, true);
+        Part(PrimitiveType.Cylinder, "Tower body", tower, new Vector3(0f, body * 0.5f, 0f), new Vector3(radius * 2f, body * 0.5f, radius * 2f), chunk.Theme.CastleStone);
+        Part(PrimitiveType.Cylinder, "Tower parapet", tower, new Vector3(0f, body + 0.06f, 0f), new Vector3(radius * 2.35f, 0.1f, radius * 2.35f), chunk.Theme.CastleTrim);
+        Pyramid("Tower roof", tower, new Vector3(0f, body + 0.15f, 0f), new Vector3(radius * 2.1f, 1f, radius * 2.1f), chunk.Theme.Roof);
+        Part(PrimitiveType.Sphere, "Roof beacon", tower, new Vector3(0f, body + 1.18f, 0f), Vector3.one * 0.18f, chunk.Theme.WindowGlow, true);
         for (var y = 1.1f; y < body - 0.5f; y += 1.4f)
         {
-            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(0f, y, -radius - 0.01f), new Vector3(0.14f, 0.45f, 0.04f), Gold, true);
-            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(radius + 0.01f, y, 0f), new Vector3(0.04f, 0.45f, 0.14f), Gold, true);
+            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(0f, y, -radius - 0.01f), new Vector3(0.14f, 0.45f, 0.04f), chunk.Theme.WindowGlow, true);
+            Part(PrimitiveType.Cube, "Window slit", tower, new Vector3(radius + 0.01f, y, 0f), new Vector3(0.04f, 0.45f, 0.14f), chunk.Theme.WindowGlow, true);
         }
 
         AddBox(chunk, new Vector3(x, height * 0.5f, z), new Vector3(radius * 2f, height, radius * 2f));
@@ -1381,12 +1496,12 @@ public sealed class SkyfortStrike : MonoBehaviour
         var width = toX - fromX;
         var centerX = (fromX + toX) * 0.5f;
         var localZ = z - chunk.StartZ;
-        Part(PrimitiveType.Cube, "Curtain wall", root, new Vector3(centerX, height * 0.5f, localZ), new Vector3(width, height, 1.1f), CastleStone);
-        Part(PrimitiveType.Cube, "Wall walk", root, new Vector3(centerX, height + 0.05f, localZ), new Vector3(width, 0.1f, 1.3f), CastleTrim);
-        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), Cyan, true);
+        Part(PrimitiveType.Cube, "Curtain wall", root, new Vector3(centerX, height * 0.5f, localZ), new Vector3(width, height, 1.1f), chunk.Theme.CastleStone);
+        Part(PrimitiveType.Cube, "Wall walk", root, new Vector3(centerX, height + 0.05f, localZ), new Vector3(width, 0.1f, 1.3f), chunk.Theme.CastleTrim);
+        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), chunk.Theme.RampartGlow, true);
         for (var x = fromX + 0.35f; x < toX - 0.2f; x += 0.9f)
         {
-            Part(PrimitiveType.Cube, "Merlon", root, new Vector3(x, height + 0.3f, localZ - 0.45f), new Vector3(0.45f, 0.4f, 0.3f), CastleStone);
+            Part(PrimitiveType.Cube, "Merlon", root, new Vector3(x, height + 0.3f, localZ - 0.45f), new Vector3(0.45f, 0.4f, 0.3f), chunk.Theme.CastleStone);
         }
 
         AddBox(chunk, new Vector3(centerX, (height + 0.5f) * 0.5f, z), new Vector3(width, height + 0.5f, 1.1f));
@@ -1399,12 +1514,12 @@ public sealed class SkyfortStrike : MonoBehaviour
         const float height = 3.6f;
         var root = chunk.Root;
         var local = new Vector3(x, 0f, z - chunk.StartZ);
-        Part(PrimitiveType.Cube, "Keep", root, local + new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, depth), CastleStone);
-        Part(PrimitiveType.Cube, "Keep roof", root, local + new Vector3(0f, height + 0.05f, 0f), new Vector3(width + 0.2f, 0.1f, depth + 0.2f), CastleTrim);
-        Part(PrimitiveType.Cube, "Keep door", root, local + new Vector3(0f, 0.7f, -depth * 0.5f - 0.01f), new Vector3(1f, 1.4f, 0.04f), Gold, true);
+        Part(PrimitiveType.Cube, "Keep", root, local + new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, depth), chunk.Theme.CastleStone);
+        Part(PrimitiveType.Cube, "Keep roof", root, local + new Vector3(0f, height + 0.05f, 0f), new Vector3(width + 0.2f, 0.1f, depth + 0.2f), chunk.Theme.CastleTrim);
+        Part(PrimitiveType.Cube, "Keep door", root, local + new Vector3(0f, 0.7f, -depth * 0.5f - 0.01f), new Vector3(1f, 1.4f, 0.04f), chunk.Theme.WindowGlow, true);
         for (var mx = -width * 0.5f + 0.3f; mx < width * 0.5f; mx += 0.8f)
         {
-            Part(PrimitiveType.Cube, "Merlon", root, local + new Vector3(mx, height + 0.3f, -depth * 0.5f + 0.15f), new Vector3(0.4f, 0.4f, 0.3f), CastleStone);
+            Part(PrimitiveType.Cube, "Merlon", root, local + new Vector3(mx, height + 0.3f, -depth * 0.5f + 0.15f), new Vector3(0.4f, 0.4f, 0.3f), chunk.Theme.CastleStone);
         }
 
         AddBox(chunk, new Vector3(x, (height + 0.5f) * 0.5f, z), new Vector3(width, height + 0.5f, depth));
@@ -1446,24 +1561,24 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var root = chunk.Root;
         var mid = ChunkLength * 0.5f;
-        Part(PrimitiveType.Cube, "Deck plate", root, new Vector3(0f, -0.25f, mid), new Vector3(WallHalfWidth * 2f + 1f, 0.5f, ChunkLength), arena ? new Color(0.06f, 0.05f, 0.1f) : Deck);
+        Part(PrimitiveType.Cube, "Deck plate", root, new Vector3(0f, -0.25f, mid), new Vector3(WallHalfWidth * 2f + 1f, 0.5f, ChunkLength), arena ? chunk.Theme.ArenaDeck : chunk.Theme.Deck);
         for (var z = 1.5f; z < ChunkLength; z += 3f)
         {
-            Part(PrimitiveType.Cube, "Deck seam", root, new Vector3(0f, 0.005f, z), new Vector3(WallHalfWidth * 2f, 0.02f, 0.05f), DeckLine);
+            Part(PrimitiveType.Cube, "Deck seam", root, new Vector3(0f, 0.005f, z), new Vector3(WallHalfWidth * 2f, 0.02f, 0.05f), chunk.Theme.DeckLine);
         }
 
         for (var x = -6f; x <= 6f; x += 3f)
         {
-            Part(PrimitiveType.Cube, "Deck lane", root, new Vector3(x, 0.006f, mid), new Vector3(0.05f, 0.02f, ChunkLength), DeckLine);
+            Part(PrimitiveType.Cube, "Deck lane", root, new Vector3(x, 0.006f, mid), new Vector3(0.05f, 0.02f, ChunkLength), chunk.Theme.DeckLine);
         }
 
         // Tall far wall with altitude rungs, low near wall so it never hides the ship.
-        Beveled("Far rampart", root, new Vector3(-WallHalfWidth - 0.6f, 2.5f, mid), new Vector3(1.2f, 5f, ChunkLength - 0.1f), Hull, 0.15f);
-        Beveled("Near rampart", root, new Vector3(WallHalfWidth + 0.6f, 0.35f, mid), new Vector3(1.2f, 0.7f, ChunkLength - 0.1f), Hull, 0.15f);
-        Part(PrimitiveType.Cube, "Near rampart light", root, new Vector3(WallHalfWidth + 0.02f, 0.62f, mid), new Vector3(0.05f, 0.06f, ChunkLength - 0.4f), arena ? Red : Cyan, true);
+        Beveled("Far rampart", root, new Vector3(-WallHalfWidth - 0.6f, 2.5f, mid), new Vector3(1.2f, 5f, ChunkLength - 0.1f), chunk.Theme.Rampart, 0.15f);
+        Beveled("Near rampart", root, new Vector3(WallHalfWidth + 0.6f, 0.35f, mid), new Vector3(1.2f, 0.7f, ChunkLength - 0.1f), chunk.Theme.Rampart, 0.15f);
+        Part(PrimitiveType.Cube, "Near rampart light", root, new Vector3(WallHalfWidth + 0.02f, 0.62f, mid), new Vector3(0.05f, 0.06f, ChunkLength - 0.4f), arena ? Red : chunk.Theme.RampartGlow, true);
         for (var y = 1; y <= 5; y++)
         {
-            var color = y == 5 ? Gold : Cyan;
+            var color = y == 5 ? Gold : chunk.Theme.RampartGlow;
             Part(PrimitiveType.Cube, "Altitude rung", root, new Vector3(-WallHalfWidth + 0.01f, y - 0.03f, mid), new Vector3(0.04f, 0.05f, ChunkLength - 0.4f), color, true);
         }
 
@@ -1477,16 +1592,16 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var root = chunk.Root;
         var mid = ChunkLength * 0.5f;
-        Part(PrimitiveType.Cube, "Void plate", root, new Vector3(0f, -0.25f, mid), new Vector3(WallHalfWidth * 2f + 1f, 0.5f, ChunkLength), VoidColor);
+        Part(PrimitiveType.Cube, "Void plate", root, new Vector3(0f, -0.25f, mid), new Vector3(WallHalfWidth * 2f + 1f, 0.5f, ChunkLength), chunk.Theme.MidFloor);
         for (var i = 0; i < 14; i++)
         {
             var star = new Vector3(Random.Range(-WallHalfWidth, WallHalfWidth), 0.02f, Random.Range(0f, ChunkLength));
-            Part(PrimitiveType.Sphere, "Star", root, star, Vector3.one * Random.Range(0.05f, 0.14f), new Color(0.5f, 0.7f, 1f), true);
+            Part(PrimitiveType.Sphere, "Star", root, star, Vector3.one * Random.Range(0.05f, 0.14f), chunk.Theme.MidSpeck, chunk.Theme.MidSpecksGlow);
         }
 
         for (var z = 0f; z < ChunkLength; z += 6f)
         {
-            Part(PrimitiveType.Cube, "Nav grid", root, new Vector3(0f, 0.01f, z), new Vector3(WallHalfWidth * 2f, 0.01f, 0.03f), new Color(0.08f, 0.12f, 0.25f));
+            Part(PrimitiveType.Cube, "Nav grid", root, new Vector3(0f, 0.01f, z), new Vector3(WallHalfWidth * 2f, 0.01f, 0.03f), Color.Lerp(chunk.Theme.MidFloor, chunk.Theme.MidSpeck, 0.3f));
         }
     }
 
@@ -1496,6 +1611,7 @@ public sealed class SkyfortStrike : MonoBehaviour
     {
         var pulse = 0.55f + 0.45f * Mathf.Sin(Time.time * 18f);
         fieldMaterial.SetColor("_EmissionColor", Magenta * (1.2f + pulse * 1.6f));
+        UpdateAtmosphere(false);
         if (flash.intensity > 0f)
         {
             flash.intensity = Mathf.Max(0f, flash.intensity - Time.deltaTime * 30f);

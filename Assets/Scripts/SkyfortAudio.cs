@@ -19,6 +19,8 @@ public sealed class SkyfortSounds
     public AudioClip GameOver;
     public AudioClip Engine;
     public AudioClip Bounce;
+    public AudioClip Hit;
+    public AudioClip PowerUp;
 }
 
 // Synthesizes every sound in code, so no audio files are needed (WebGL friendly).
@@ -46,6 +48,14 @@ public static class SkyfortAudio
             return Mathf.Exp(-11f * t) * Saw(f, t) * 0.22f;
         });
         var explosion = Noise(noise, 0.75f, 5.5f, 0.12f, 70f, 0.55f);
+        var hit = Noise(noise, 0.35f, 11f, 0.35f, 95f, 0.6f);
+        var powerUp = Synth(0.55f, t =>
+        {
+            // Bright rising sweep with a shimmering octave on top.
+            var f = 520f + 1400f * Mathf.Min(t / 0.35f, 1f);
+            var env = Mathf.Min(t / 0.01f, 1f) * Mathf.Exp(-4.5f * t);
+            return env * (Mathf.Sin(2f * Mathf.PI * f * t * 0.5f) + 0.4f * Bell(f, t)) * 0.28f;
+        });
         var bigExplosion = Noise(noise, 1.8f, 2.4f, 0.06f, 45f, 0.7f);
         var fuel = Arpeggio(new[] { 523.25f, 659.25f, 783.99f, 1046.5f }, 0.055f, 0.5f);
         var radar = Arpeggio(new[] { 1318.5f, 1760f, 1318.5f, 2093f }, 0.07f, 0.55f);
@@ -96,7 +106,9 @@ public static class SkyfortAudio
             LevelClear = Clip("Level clear", levelClear),
             GameOver = Clip("Game over", gameOver),
             Engine = Clip("Engine", engine),
-            Bounce = Clip("Bounce", bounce)
+            Bounce = Clip("Bounce", bounce),
+            Hit = Clip("Hull hit", hit),
+            PowerUp = Clip("Power-up", powerUp)
         };
     }
 
