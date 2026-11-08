@@ -37,10 +37,12 @@ public static class SkyfortAudio
         await Awaitable.BackgroundThreadAsync();
 #endif
         var noise = new System.Random(1979);
-        var laser = Synth(0.14f, t =>
+        var laser = Synth(0.09f, t =>
         {
-            var f = 1900f * Mathf.Exp(-14f * t) + 320f;
-            return Mathf.Exp(-16f * t) * Square(f, t) * 0.32f;
+            // Soft "pew": a pure tone gliding down an octave with a quick fade, gentle enough to repeat rapidly.
+            var f = 520f + 680f * Mathf.Exp(-30f * t);
+            var env = Mathf.Min(t / 0.004f, 1f) * Mathf.Exp(-34f * t);
+            return env * (Mathf.Sin(2f * Mathf.PI * f * t) + 0.15f * Mathf.Sin(4f * Mathf.PI * f * t)) * 0.3f;
         });
         var enemyShot = Synth(0.2f, t =>
         {

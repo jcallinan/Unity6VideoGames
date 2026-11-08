@@ -20,22 +20,24 @@ There are three levels, each with its own look and obstacle mix. After the third
 | Steer left / right | **A / D** or **← / →** |
 | Climb / dive | **W / S** or **↑ / ↓** |
 | Fire | **Space** (also **J**, **Z**, **Left Ctrl**) |
-| Display filter | **F** cycles 16-BIT → CRT → ARCADE → MODERN |
+| Display mode | **M** cycles 16-BIT → CRT → ARCADE → MODERN |
 | Pause | **P** or **Esc** |
 | Restart | **R**, or **Space / Enter** on the Game Over screen |
 
-### Retro look and display filters
+### Retro look, neon and display modes
 
-The game aims for a look between an early-80s arcade isometric shooter and a 16-bit console: saturated royal-blue fortress decks on black space, hard shadows, and a pixel-art display filter on the camera (`SkyfortRetroFilter` with `Assets/Shaders/SkyfortRetro.shader`). Press **F** to switch modes; your choice is remembered.
+The game aims for a look between an early-80s arcade isometric shooter and a 16-bit console: saturated decks on black sky, hard shadows, and neon everywhere. Neon traces the deck grid, pyramid and spire edges, castle walls and towers. The fighter has neon wing edges, fuselage strips, nozzle rings, a soft underglow and a cyan-to-green engine trail. Each level has its own neon pair (`Neon` / `NeonAlt` in `SkyfortThemes.cs`).
+
+A display filter on the camera (`SkyfortRetroFilter` with `Assets/Shaders/SkyfortRetro.shader`) gives the pixel-art look. Press **M** to switch modes (it's kept away from the WASD flight keys); your choice is remembered.
 
 | Mode | What it does |
 |---|---|
-| **16-BIT** (default) | Snaps the image to a 224-line pixel grid and 15-bit color with light ordered dithering, like a 16-bit console |
-| **CRT** | 16-BIT on a curved picture tube: scanlines, RGB aperture mask, glow and vignette |
-| **ARCADE** | Chunkier 192-line pixels, 8 levels per color channel and heavy dithering, plus the CRT effects |
+| **16-BIT** (default) | A 360-line pixel grid with lightly softened edges, 15-bit color and a neon glow |
+| **CRT** | A curved picture tube: soft scanlines, a faint RGB mask, slight color fringing and a stronger glow |
+| **ARCADE** | Chunkier 240-line pixels and fewer colors, plus the CRT effects |
 | **MODERN** | No filter: full-resolution rendering |
 
-The HUD is drawn by UI Toolkit on top of the filtered image, so it stays sharp in every mode.
+The modes keep edges crisp with just a touch of softness, and only neon-bright light blooms. The HUD is drawn by UI Toolkit on top of the filtered image, so it stays sharp in every mode.
 
 ### How to fly
 
@@ -53,10 +55,10 @@ Fly through a spinning halo to collect it (+100 points each). They float in the 
 
 | Power-up | Halo | Effect |
 |---|---|---|
-| **Repair** | Green cross | Restores 2 hull points |
+| **Repair** | White cross on a red halo | Restores 2 hull points |
 | **Fuel** | Gold canister | +40 fuel |
 | **Shield** | Cyan orb | A bubble absorbs all enemy fire for 10 seconds (it flickers when it's about to expire) |
-| **Spread Shot** | Magenta shards | Three-way lasers and faster firing for 15 seconds |
+| **Spread Shot** | Green shards | Three-way lasers and faster firing for 15 seconds |
 | **Extra Ship** | White chevron (rare) | +1 ship, up to 9 |
 
 Active timers show above the HULL gauge, and a notice appears under the level name when you collect something or take a hit.

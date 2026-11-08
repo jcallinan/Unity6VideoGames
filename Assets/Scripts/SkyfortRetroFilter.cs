@@ -1,11 +1,12 @@
 using UnityEngine;
 
 // Retro display filter on the game camera (Built-in Render Pipeline image effect using OnRenderImage).
-// Modes cycle with F in game and the choice is remembered:
-//   16-BIT  - SNES-style: ~224-line pixel grid, 15-bit color with light dithering
-//   CRT     - 16-BIT on a curved tube with scanlines, RGB mask, glow and vignette
-//   ARCADE  - early-80s arcade: chunkier pixels, 8 levels per channel, strong dither, CRT
+// Modes cycle with M in game and the choice is remembered:
+//   16-BIT  - 16-bit-console look: ~360-line pixels with lightly softened edges, 15-bit color, neon glow
+//   CRT     - on a gently curved tube: soft scanlines, faint RGB mask, slight color fringing, stronger glow
+//   ARCADE  - early-80s arcade: chunkier pixels, fewer colors, CRT traits
 //   MODERN  - no filter
+// The modes sit between razor-sharp pixels and a blurry image: edges stay crisp with just a touch of softness.
 [RequireComponent(typeof(Camera))]
 public sealed class SkyfortRetroFilter : MonoBehaviour
 {
@@ -14,6 +15,7 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     private struct Settings
     {
         public int Lines;
+        public float Softness;
         public float Levels;
         public float Dither;
         public float Scanlines;
@@ -21,7 +23,9 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         public float Mask;
         public float Vignette;
         public float Glow;
+        public float Fringe;
         public float Saturation;
+        public float Contrast;
     }
 
     private const string PrefsKey = "SkyfortStrike.RetroFilter";
@@ -31,6 +35,7 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     [SerializeField] private Mode mode = Mode.SixteenBit;
 
     private static readonly int ResolutionId = Shader.PropertyToID("_Resolution");
+    private static readonly int SoftnessId = Shader.PropertyToID("_Softness");
     private static readonly int LevelsId = Shader.PropertyToID("_Levels");
     private static readonly int DitherId = Shader.PropertyToID("_Dither");
     private static readonly int ScanlinesId = Shader.PropertyToID("_Scanlines");
@@ -38,7 +43,9 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     private static readonly int MaskId = Shader.PropertyToID("_Mask");
     private static readonly int VignetteId = Shader.PropertyToID("_Vignette");
     private static readonly int GlowId = Shader.PropertyToID("_Glow");
+    private static readonly int FringeId = Shader.PropertyToID("_Fringe");
     private static readonly int SaturationId = Shader.PropertyToID("_Saturation");
+    private static readonly int ContrastId = Shader.PropertyToID("_Contrast");
 
     private Material material;
 
@@ -67,9 +74,21 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
 
     private static Settings For(Mode value) => value switch
     {
-        Mode.Crt => new Settings { Lines = 224, Levels = 31f, Dither = 0.6f, Scanlines = 0.5f, Curvature = 0.07f, Mask = 0.35f, Vignette = 0.4f, Glow = 0.7f, Saturation = 1.15f },
-        Mode.Arcade => new Settings { Lines = 192, Levels = 7f, Dither = 1f, Scanlines = 0.55f, Curvature = 0.09f, Mask = 0.4f, Vignette = 0.45f, Glow = 0.9f, Saturation = 1.35f },
-        _ => new Settings { Lines = 224, Levels = 31f, Dither = 0.5f, Scanlines = 0f, Curvature = 0f, Mask = 0f, Vignette = 0f, Glow = 0.35f, Saturation = 1.1f }
+        Mode.Crt => new Settings
+        {
+            Lines = 300, Softness = 0.18f, Levels = 31f, Dither = 0.08f, Scanlines = 0.2f, Curvature = 0.03f,
+            Mask = 0.1f, Vignette = 0.3f, Glow = 0.9f, Fringe = 0.1f, Saturation = 1.15f, Contrast = 1.2f
+        },
+        Mode.Arcade => new Settings
+        {
+            Lines = 240, Softness = 0.06f, Levels = 15f, Dither = 0.2f, Scanlines = 0.25f, Curvature = 0.045f,
+            Mask = 0.15f, Vignette = 0.35f, Glow = 1.0f, Fringe = 0.08f, Saturation = 1.2f, Contrast = 1.25f
+        },
+        _ => new Settings
+        {
+            Lines = 360, Softness = 0.1f, Levels = 31f, Dither = 0.06f, Scanlines = 0f, Curvature = 0f,
+            Mask = 0f, Vignette = 0.1f, Glow = 0.7f, Fringe = 0f, Saturation = 1.1f, Contrast = 1.2f
+        }
     };
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -88,6 +107,7 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         var settings = For(mode);
         var aspect = (float)source.width / Mathf.Max(1, source.height);
         material.SetVector(ResolutionId, new Vector2(Mathf.Round(settings.Lines * aspect), settings.Lines));
+        material.SetFloat(SoftnessId, settings.Softness);
         material.SetFloat(LevelsId, settings.Levels);
         material.SetFloat(DitherId, settings.Dither);
         material.SetFloat(ScanlinesId, settings.Scanlines);
@@ -95,8 +115,10 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         material.SetFloat(MaskId, settings.Mask);
         material.SetFloat(VignetteId, settings.Vignette);
         material.SetFloat(GlowId, settings.Glow);
+        material.SetFloat(FringeId, settings.Fringe);
         material.SetFloat(SaturationId, settings.Saturation);
-        source.filterMode = FilterMode.Point;
+        material.SetFloat(ContrastId, settings.Contrast);
+        source.filterMode = FilterMode.Bilinear; // the soft blur relies on filtered sampling
         Graphics.Blit(source, destination, material);
     }
 

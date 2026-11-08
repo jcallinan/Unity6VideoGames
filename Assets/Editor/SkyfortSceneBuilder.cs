@@ -56,7 +56,7 @@ public static class SkyfortSceneBuilder
         var drone = SavePrefab(BuildDrone(), "Drone");
         var laser = SavePrefab(BuildLaser(), "Laser");
         var bolt = SavePrefab(BuildBolt(), "Enemy Bolt");
-        var forceField = SaveMaterial(new Material(Mat(Magenta, true)) { name = "Force Field" });
+        var forceField = SaveMaterial(new Material(Mat(NeonGreen, true)) { name = "Force Field" });
         var repairPickup = SavePrefab(BuildRepairPickup(), "PowerUp Repair");
         var fuelPickup = SavePrefab(BuildFuelPickup(), "PowerUp Fuel");
         var shieldPickup = SavePrefab(BuildShieldPickup(), "PowerUp Shield");
@@ -205,11 +205,25 @@ public static class SkyfortSceneBuilder
             Beveled("Tail fin", model, new Vector3(side * 0.3f, 0.38f, -0.8f), new Vector3(0.06f, 0.5f, 0.45f), Hull, 0.02f, false, new Vector3(0f, 0f, side * -18f));
             Part(PrimitiveType.Cylinder, "Engine pod", model, new Vector3(side * 0.42f, -0.06f, -0.85f), new Vector3(0.28f, 0.35f, 0.28f), Armor, false, new Vector3(90f, 0f, 0f));
             Part(PrimitiveType.Sphere, "Afterburner", model, new Vector3(side * 0.42f, -0.06f, -1.22f), new Vector3(0.24f, 0.24f, 0.12f), Cyan, true);
-            Part(PrimitiveType.Sphere, "Nav light", model, new Vector3(side * 1.6f, 0.02f, -0.9f), Vector3.one * 0.1f, side < 0 ? Red : Lime, true);
+            Part(PrimitiveType.Sphere, "Nav light", model, new Vector3(side * 1.6f, 0.02f, -0.9f), Vector3.one * 0.12f, side < 0 ? Red : Lime, true);
+
+            // Neon trim: fuselage side strips, wing leading edges and rings around the engine nozzles.
+            Part(PrimitiveType.Cube, "Neon fuselage strip", model, new Vector3(side * 0.32f, 0.02f, 0.1f), new Vector3(0.04f, 0.05f, 1.8f), NeonGreen, true);
+            var wingStart = new Vector3(side * 0.28f, -0.01f, 0.35f);
+            var wingEnd = new Vector3(side * 1.63f, -0.01f, -0.4f);
+            var edge = Part(PrimitiveType.Cube, "Neon wing edge", model, (wingStart + wingEnd) * 0.5f, new Vector3((wingEnd - wingStart).magnitude, 0.04f, 0.05f), Cyan, true);
+            edge.transform.localRotation = Quaternion.FromToRotation(Vector3.right * side, (wingEnd - wingStart) * side);
+            Ring("Neon nozzle", model, new Vector3(side * 0.42f, -0.06f, -1.05f), 0.15f, 0.03f, NeonGreen, true, new Vector3(90f, 0f, 0f));
         }
+
+        Part(PrimitiveType.Cube, "Neon spine", model, new Vector3(0f, 0.32f, -0.35f), new Vector3(0.04f, 0.03f, 0.85f), Cyan, true);
 
         // The ground shadow is a separate object straight below the ship, so the model casts none of its own.
         DisableShadows(model);
+
+        // Soft green underglow (alpha-blended, unlit) that follows the ship.
+        var underglow = Part(PrimitiveType.Cylinder, "Neon underglow", model, new Vector3(0f, -0.22f, -0.2f), new Vector3(1.5f, 0.005f, 1.9f), NeonGreen, true);
+        underglow.sharedMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Neon Underglow", color = new Color(0.1f, 1f, 0.5f, 0.14f) };
 
         // Translucent bubble shown while the Shield power-up is active (Sprites/Default is alpha-blended and unlit).
         var bubble = Part(PrimitiveType.Sphere, "Shield Bubble", ship, Vector3.zero, new Vector3(3.8f, 1.5f, 3.4f), Cyan, true);
@@ -233,6 +247,15 @@ public static class SkyfortSceneBuilder
         var size = engineTrail.sizeOverLifetime;
         size.enabled = true;
         size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
+        // Neon trail: hot cyan at the nozzle fading to green.
+        var trailColor = engineTrail.colorOverLifetime;
+        trailColor.enabled = true;
+        var trailGradient = new Gradient();
+        trailGradient.SetKeys(
+            new[] { new GradientColorKey(new Color(0.4f, 1f, 1f), 0f), new GradientColorKey(new Color(0.15f, 1f, 0.45f), 1f) },
+            new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+        trailColor.color = trailGradient;
+        main.startColor = Color.white;
         engineTrail.GetComponent<ParticleSystemRenderer>().sharedMaterial = ParticleMaterial();
         return body;
     }
@@ -374,10 +397,10 @@ public static class SkyfortSceneBuilder
         foreach (var side in new[] { -1f, 1f })
         {
             Beveled("Drone wing", root, new Vector3(side * 0.75f, 0f, -0.1f), new Vector3(0.7f, 0.08f, 0.6f), Armor, 0.03f, false, new Vector3(0f, side * 20f, side * -10f));
-            Part(PrimitiveType.Sphere, "Wing tip", root, new Vector3(side * 1.08f, 0f, -0.2f), Vector3.one * 0.14f, Magenta, true);
+            Part(PrimitiveType.Sphere, "Wing tip", root, new Vector3(side * 1.08f, 0f, -0.2f), Vector3.one * 0.14f, NeonGreen, true);
         }
 
-        Ring("Drone rotor", root, new Vector3(0f, 0.25f, 0f), 0.35f, 0.04f, Magenta);
+        Ring("Drone rotor", root, new Vector3(0f, 0.25f, 0f), 0.35f, 0.04f, NeonGreen);
         return root.gameObject;
     }
 
@@ -407,9 +430,9 @@ public static class SkyfortSceneBuilder
 
     private static GameObject BuildRepairPickup()
     {
-        var root = PickupBase("PowerUp Repair", Lime);
-        Part(PrimitiveType.Cube, "Cross bar", root, Vector3.zero, new Vector3(0.7f, 0.22f, 0.22f), Lime, true);
-        Part(PrimitiveType.Cube, "Cross post", root, Vector3.zero, new Vector3(0.22f, 0.7f, 0.22f), Lime, true);
+        var root = PickupBase("PowerUp Repair", Red);
+        Part(PrimitiveType.Cube, "Cross bar", root, Vector3.zero, new Vector3(0.7f, 0.22f, 0.22f), Bone, true);
+        Part(PrimitiveType.Cube, "Cross post", root, Vector3.zero, new Vector3(0.22f, 0.7f, 0.22f), Bone, true);
         return root.gameObject;
     }
 
@@ -431,12 +454,12 @@ public static class SkyfortSceneBuilder
 
     private static GameObject BuildSpreadPickup()
     {
-        var root = PickupBase("PowerUp Spread", Magenta);
+        var root = PickupBase("PowerUp Spread", NeonGreen);
         var crystal = CreateCrystalMesh(0.14f, 0.4f, 0.2f);
         crystal.name = "Spread crystal";
         foreach (var angle in new[] { -32f, 0f, 32f })
         {
-            MeshPart("Spread shard", root, Vector3.zero, new Vector3(0f, 0f, angle), crystal, Magenta, true);
+            MeshPart("Spread shard", root, Vector3.zero, new Vector3(0f, 0f, angle), crystal, NeonGreen, true);
         }
 
         return root.gameObject;
