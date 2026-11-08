@@ -1,5 +1,9 @@
 # Skyfort Strike — Unity 6 Feature Showcase
 
+![Skyfort Strike: the neon-trimmed fighter over the blue Skyfort deck, with pyramids and fuel tanks ahead](Screenshots/skyfort-16bit.png)
+
+**Play it in your browser:** https://jcallinan.github.io/Unity6VideoGames/
+
 An isometric, forward-scrolling altitude shooter. Your strike fighter flies itself down a corridor; you steer, climb and dive around pyramids, castles, obelisks, ice spires and force fields, and you shoot ground targets at their own height. Grab power-ups, keep your fuel up, survive the mid-level drone wave, and take on the Warden, a towering guardian mech, at the end of every level.
 
 There are three levels, each with its own look and obstacle mix. After the third, they repeat, a little faster each time:
@@ -9,6 +13,10 @@ There are three levels, each with its own look and obstacle mix. After the third
 | 1 | **Skyfort**: a floating fortress in deep space | Pyramids, castle walls and keeps, force fields | Open Space |
 | 2 | **Dune Ruins**: sandstone ruins under a burning sky | Pyramid fields, obelisk needles, sandstone forts | Sandstorm Flats |
 | 3 | **Ice Citadel**: a frozen fortress on a dark night | Crystal ice spires, ice castles, force fields | Aurora Field |
+
+| Skyfort | Dune Ruins | Ice Citadel |
+|---|---|---|
+| ![Level 1, Skyfort: blue deck with cyan neon grid, pyramids with green neon edges](Screenshots/skyfort-16bit.png) | ![Level 2, Dune Ruins: sandstone deck with cyan neon lanes and glowing pyramids](Screenshots/dune-ruins-16bit.png) | ![Level 3, Ice Citadel: icy deck with crystal spires traced in cyan neon](Screenshots/ice-citadel-16bit.png) |
 
 ## Open and play
 
@@ -36,6 +44,14 @@ A display filter on the camera (`SkyfortRetroFilter` with `Assets/Shaders/Skyfor
 | **CRT** | A curved picture tube: soft scanlines, a faint RGB mask, slight color fringing and a stronger glow |
 | **ARCADE** | Chunkier 240-line pixels and fewer colors, plus the CRT effects |
 | **MODERN** | No filter: full-resolution rendering |
+
+The same stretch of the Skyfort level in each mode:
+
+| 16-BIT (default) | CRT |
+|---|---|
+| ![16-BIT mode: crisp pixels with neon glow](Screenshots/skyfort-16bit.png) | ![CRT mode: scanlines and a gently curved screen](Screenshots/skyfort-crt.png) |
+| **ARCADE** | **MODERN** |
+| ![ARCADE mode: chunkier pixels and fewer colors](Screenshots/skyfort-arcade.png) | ![MODERN mode: no filter, full resolution](Screenshots/skyfort-modern.png) |
 
 The modes keep edges crisp with just a touch of softness, and only neon-bright light blooms. The HUD is drawn by UI Toolkit on top of the filtered image, so it stays sharp in every mode.
 
