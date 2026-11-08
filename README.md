@@ -1,6 +1,14 @@
 # Skyfort Strike — Unity 6 Feature Showcase
 
-An isometric, forward-scrolling altitude shooter. Your strike fighter flies itself through a fortress corridor; you steer, climb and dive around pyramids, castles and force fields, and you shoot ground targets at their own height. Destroy fuel tanks to keep flying, survive the open-space drone wave, and take on the Warden, a towering guardian mech, at the end of every level. Each level is faster than the last.
+An isometric, forward-scrolling altitude shooter. Your strike fighter flies itself down a corridor; you steer, climb and dive around pyramids, castles, obelisks, ice spires and force fields, and you shoot ground targets at their own height. Grab power-ups, keep your fuel up, survive the mid-level drone wave, and take on the Warden, a towering guardian mech, at the end of every level.
+
+There are three levels, each with its own look and obstacle mix. After the third, they repeat, a little faster each time:
+
+| Level | Theme | Obstacles | Mid-level zone |
+|---|---|---|---|
+| 1 | **Skyfort**: a floating fortress in deep space | Pyramids, castle walls and keeps, force fields | Open Space |
+| 2 | **Dune Ruins**: sandstone ruins under a burning sky | Pyramid fields, obelisk needles, sandstone forts | Sandstorm Flats |
+| 3 | **Ice Citadel**: a frozen fortress on a dark night | Crystal ice spires, ice castles, force fields | Aurora Field |
 
 ## Open and play
 
@@ -12,17 +20,46 @@ An isometric, forward-scrolling altitude shooter. Your strike fighter flies itse
 | Steer left / right | **A / D** or **← / →** |
 | Climb / dive | **W / S** or **↑ / ↓** |
 | Fire | **Space** (also **J**, **Z**, **Left Ctrl**) |
+| Display filter | **F** cycles 16-BIT → CRT → ARCADE → MODERN |
 | Pause | **P** or **Esc** |
 | Restart | **R**, or **Space / Enter** on the Game Over screen |
+
+### Retro look and display filters
+
+The game aims for a look between an early-80s arcade isometric shooter and a 16-bit console: saturated royal-blue fortress decks on black space, hard shadows, and a pixel-art display filter on the camera (`SkyfortRetroFilter` with `Assets/Shaders/SkyfortRetro.shader`). Press **F** to switch modes; your choice is remembered.
+
+| Mode | What it does |
+|---|---|
+| **16-BIT** (default) | Snaps the image to a 224-line pixel grid and 15-bit color with light ordered dithering, like a 16-bit console |
+| **CRT** | 16-BIT on a curved picture tube: scanlines, RGB aperture mask, glow and vignette |
+| **ARCADE** | Chunkier 192-line pixels, 8 levels per color channel and heavy dithering, plus the CRT effects |
+| **MODERN** | No filter: full-resolution rendering |
+
+The HUD is drawn by UI Toolkit on top of the filtered image, so it stays sharp in every mode.
 
 ### How to fly
 
 - **Read your height.** The ALT gauge (left), the ship's ground shadow (it shrinks as you climb) and the glowing rungs on the far rampart all show your altitude.
 - **Pyramids and castles** fill the fortress: pyramid fields and rows, curtain walls with towers, and keeps with a turret on the roof. Fly over or around them. Everything tops out below the ship's ceiling, so climbing high always clears it.
 - **Force fields** (pink beams) rise from the floor. Fly over them.
-- **Bumping into things doesn't cost a ship.** Hit a pyramid, castle, force field or ground target and the fighter bounces off and up, losing ground instead. Enemy fire and running out of fuel still cost a ship.
+- **Bumping into things doesn't cost a ship.** Hit any obstacle or ground target and the fighter bounces off and up, losing ground instead.
+- **Your hull takes four hits.** Each enemy shot knocks off a quarter of the HULL gauge and gives you a moment of invulnerability (the ship blinks). At one point left, the ship trails sparks. Only an empty hull, or running out of fuel, costs a ship. A new ship starts with a full hull.
 - **Your laser fires at your current altitude.** Dive low to hit turrets (150), fuel tanks (300, refuels you) and radar dishes (1000, two hits).
 - **Fuel** burns constantly, except in the Warden arena. When it runs out, you crash.
+
+### Power-ups
+
+Fly through a spinning halo to collect it (+100 points each). They float in the corridor, and destroyed targets sometimes drop one; radar dishes always do. Repairs turn up more often when your hull is damaged.
+
+| Power-up | Halo | Effect |
+|---|---|---|
+| **Repair** | Green cross | Restores 2 hull points |
+| **Fuel** | Gold canister | +40 fuel |
+| **Shield** | Cyan orb | A bubble absorbs all enemy fire for 10 seconds (it flickers when it's about to expire) |
+| **Spread Shot** | Magenta shards | Three-way lasers and faster firing for 15 seconds |
+| **Extra Ship** | White chevron (rare) | +1 ship, up to 9 |
+
+Active timers show above the HULL gauge, and a notice appears under the level name when you collect something or take a hit.
 - **The Warden.** Hit its glowing red eye before it withdraws, and dodge its plasma spreads. Destroying it awards 5000 × level.
 
 ## Project layout
@@ -33,15 +70,15 @@ The scene is laid out ahead of time, so you can explore it in the Hierarchy and 
 |---|---|
 | **Skyfort Strike** | The game (`SkyfortStrike` component). Its Inspector lists every scene object and prefab it uses. The **Audio** child holds the SFX and engine-loop sources. |
 | **Isometric Camera** | Orthographic camera at the game's framing. At runtime it follows the ship along the corridor. |
-| **Key Light** / **Explosion Flash** | Directional light with soft shadows, and the point light that flares on explosions. |
-| **Strike Fighter** | The player ship (`Rigidbody`), with its model and engine trail. **Ground Shadow** is the altitude cue drawn straight below it. |
+| **Key Light** / **Explosion Flash** | Directional light with soft shadows (its color and strength ease to each level theme), and the point light that flares on explosions. |
+| **Strike Fighter** | The player ship (`Rigidbody`), with its model, engine trail and the hidden **Shield Bubble**. **Ground Shadow** is the altitude cue drawn straight below it. |
 | **The Warden** | The boss, standing where it fights. It's hidden when the game starts and appears at the end of each level. |
 | **Explosion FX** | One world-space particle system that every explosion bursts into. |
 | **HUD** | A UI Toolkit `UIDocument` using `Assets/UI/SkyfortPanelSettings.asset`. `SkyfortHud` builds and data-binds its elements at startup. |
 | **Level (streamed at runtime)** | Empty in the editor. The corridor is generated here chunk by chunk as you fly: deck, pyramids, castles, force fields and targets. |
 | **Projectile Pools (filled at runtime)** | The pooled lasers and enemy bolts, created with `InstantiateAsync`. |
 
-Spawned objects are prefabs in `Assets/Prefabs`: Turret, Fuel Tank, Radar Dish, Drone, Laser and Enemy Bolt. Their procedural meshes and materials are saved in `Assets/Art`.
+Spawned objects are prefabs in `Assets/Prefabs`: Turret, Fuel Tank, Radar Dish, Drone, Laser, Enemy Bolt and the five PowerUp prefabs. Their procedural meshes and materials are saved in `Assets/Art`. Level themes (colors, sky, light) are defined in `Assets/Scripts/SkyfortThemes.cs`; hull damage and power-ups live in `SkyfortStrike.PowerUps.cs`.
 
 All of this is generated by **Skyfort > Rebuild Scene and Prefabs** (`Assets/Editor/SkyfortSceneBuilder.cs`), which holds the model-building code. Run it again after changing a model there. It overwrites the scene, the prefabs and `Assets/Art`, so hand edits to those are lost; tweak values in the builder instead. All models are original low-poly meshes built in code. Level chunks are built at runtime from the same kit (`SkyfortModels`), cloning the two Standard materials in `Assets/Resources` so the shader and its emission variant ship in player builds.
 
@@ -50,7 +87,7 @@ All of this is generated by **Skyfort > Rebuild Scene and Prefabs** (`Assets/Edi
 | Feature | Where |
 |---|---|
 | **UI Toolkit runtime data binding**: `[CreateProperty]`, `DataBinding`, `INotifyBindablePropertyChanged`, `IDataSourceViewHashProvider` | `SkyfortHud.cs`: the HUD is bound to `SkyfortHudState` and updates only when values change |
-| **Binding converters** (`ConverterGroup` / `sourceToUiConverters`) | bool → `style.display` (boss bar) and bool → `style.color` (low-fuel warning) |
+| **Binding converters** (`ConverterGroup` / `sourceToUiConverters`) | bool → `style.display` (boss bar), bool → `style.color` (low fuel and hull warnings) and `Color` → `style.color` (pickup and damage notices) |
 | **`[UxmlElement]` / `[UxmlAttribute]` custom controls** (source-generated) | `SkyfortGauge`, drawn with the `Painter2D` vector API |
 | **`Awaitable.BackgroundThreadAsync` / `MainThreadAsync`** | `SkyfortAudio.LoadAsync` synthesizes every sound on a worker thread, then returns to the main thread to create the `AudioClip`s |
 | **`Awaitable<T>`, `WaitForSecondsAsync`, `destroyCancellationToken`** | Countdown, respawn, boss death sequence and banners; all cancel safely when the object is destroyed |

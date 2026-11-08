@@ -23,6 +23,11 @@ public sealed class SkyfortHudState : INotifyBindablePropertyChanged, IDataSourc
     private float bossHealth;
     private bool bossVisible;
     private bool lowFuel;
+    private float hull = 1f;
+    private bool lowHull;
+    private string powerStatus = "";
+    private string toast = "";
+    private Color toastColor = Color.white;
 
     public event EventHandler<BindablePropertyChangedEventArgs> propertyChanged;
 
@@ -39,6 +44,11 @@ public sealed class SkyfortHudState : INotifyBindablePropertyChanged, IDataSourc
     [CreateProperty] public float BossHealth { get => bossHealth; set => Set(ref bossHealth, value); }
     [CreateProperty] public bool BossVisible { get => bossVisible; set => Set(ref bossVisible, value); }
     [CreateProperty] public bool LowFuel { get => lowFuel; set => Set(ref lowFuel, value); }
+    [CreateProperty] public float Hull { get => hull; set => Set(ref hull, value); }
+    [CreateProperty] public bool LowHull { get => lowHull; set => Set(ref lowHull, value); }
+    [CreateProperty] public string PowerStatus { get => powerStatus; set => Set(ref powerStatus, value); }
+    [CreateProperty] public string Toast { get => toast; set => Set(ref toast, value); }
+    [CreateProperty] public Color ToastColor { get => toastColor; set => Set(ref toastColor, value); }
 
     public long GetViewHashCode() => version;
 
@@ -206,6 +216,11 @@ public static class SkyfortHud
         var bossGauge = Gauge(bossRow, nameof(SkyfortHudState.BossHealth), Red, false, 340, 12);
         bossGauge.Ticks = 20;
 
+        // Short notices such as "SHIELD UP" or "HULL DAMAGED", colored by the event.
+        var toast = BoundLabel(center, nameof(SkyfortHudState.Toast), 22, Color.white);
+        toast.style.marginTop = 8;
+        Bind(toast, "style.color", nameof(SkyfortHudState.ToastColor), (ref Color color) => new StyleColor(color));
+
         var right = Column(top);
         right.style.alignItems = Align.FlexEnd;
         Readout(right, "LEVEL", nameof(SkyfortHudState.Level), Cyan, 24).parent.style.alignItems = Align.FlexEnd;
@@ -233,7 +248,27 @@ public static class SkyfortHud
         var fuelGauge = Gauge(fuelRow, nameof(SkyfortHudState.Fuel), Gold, false, 300, 18);
         fuelGauge.WarningBelow = 0.25f;
 
-        var help = new Label("ARROWS/WASD fly   W/S climb/dive   SPACE fire   P pause   R restart") { pickingMode = PickingMode.Ignore };
+        // Hull: each enemy hit costs a quarter; the ship is only lost when it's empty.
+        var hullRow = Row(root);
+        hullRow.style.position = Position.Absolute;
+        hullRow.style.left = 24;
+        hullRow.style.bottom = 50;
+        hullRow.style.alignItems = Align.Center;
+        var hullCaption = Caption(hullRow, "HULL");
+        hullCaption.style.marginRight = 10;
+        Bind(hullCaption, "style.color", nameof(SkyfortHudState.LowHull), (ref bool low) =>
+            new StyleColor(low ? Red : Color.white));
+        var hullGauge = Gauge(hullRow, nameof(SkyfortHudState.Hull), Lime(), false, 300, 18);
+        hullGauge.Ticks = 4;
+        hullGauge.WarningBelow = 0.3f;
+
+        // Active timed power-ups, e.g. "SHIELD 7    SPREAD 12".
+        var power = BoundLabel(root, nameof(SkyfortHudState.PowerStatus), 16, Cyan);
+        power.style.position = Position.Absolute;
+        power.style.left = 24;
+        power.style.bottom = 80;
+
+        var help = new Label("ARROWS/WASD fly   SPACE fire   F display filter   P pause   R restart") { pickingMode = PickingMode.Ignore };
         help.style.position = Position.Absolute;
         help.style.right = 24;
         help.style.bottom = 22;
@@ -319,8 +354,8 @@ public static class SkyfortHud
         return gauge;
     }
 
-    // Binding with a local source-to-UI converter (Unity 6 ConverterGroup API): bool -> style value.
-    private static void Bind<TValue>(VisualElement element, string targetProperty, string property, TypeConverter<bool, TValue> converter)
+    // Binding with a local source-to-UI converter (Unity 6 ConverterGroup API), e.g. bool -> style value.
+    private static void Bind<TSource, TValue>(VisualElement element, string targetProperty, string property, TypeConverter<TSource, TValue> converter)
     {
         var binding = new DataBinding
         {

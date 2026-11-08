@@ -57,6 +57,11 @@ public static class SkyfortSceneBuilder
         var laser = SavePrefab(BuildLaser(), "Laser");
         var bolt = SavePrefab(BuildBolt(), "Enemy Bolt");
         var forceField = SaveMaterial(new Material(Mat(Magenta, true)) { name = "Force Field" });
+        var repairPickup = SavePrefab(BuildRepairPickup(), "PowerUp Repair");
+        var fuelPickup = SavePrefab(BuildFuelPickup(), "PowerUp Fuel");
+        var shieldPickup = SavePrefab(BuildShieldPickup(), "PowerUp Shield");
+        var spreadPickup = SavePrefab(BuildSpreadPickup(), "PowerUp Spread");
+        var extraShipPickup = SavePrefab(BuildExtraShipPickup(), "PowerUp Extra Ship");
 
         // Scene hierarchy.
         var game = new GameObject("Skyfort Strike").AddComponent<SkyfortStrike>();
@@ -72,7 +77,7 @@ public static class SkyfortSceneBuilder
         engine.volume = 0.25f;
 
         var view = BuildCamera();
-        BuildKeyLight();
+        var keyLight = BuildKeyLight();
         var flash = new GameObject("Explosion Flash").AddComponent<Light>();
         flash.type = LightType.Point;
         flash.range = 9f;
@@ -94,6 +99,7 @@ public static class SkyfortSceneBuilder
 
         var wiring = new SerializedObject(game);
         Set(wiring, "view", view);
+        Set(wiring, "retroFilter", view.GetComponent<SkyfortRetroFilter>());
         Set(wiring, "shipBody", ship);
         Set(wiring, "shipModel", shipModel);
         Set(wiring, "shipShadow", shadow.transform);
@@ -116,6 +122,13 @@ public static class SkyfortSceneBuilder
         Set(wiring, "laserPrefab", laser);
         Set(wiring, "boltPrefab", bolt);
         Set(wiring, "forceFieldMaterial", forceField);
+        Set(wiring, "repairPickupPrefab", repairPickup);
+        Set(wiring, "fuelPickupPrefab", fuelPickup);
+        Set(wiring, "shieldPickupPrefab", shieldPickup);
+        Set(wiring, "spreadPickupPrefab", spreadPickup);
+        Set(wiring, "extraShipPickupPrefab", extraShipPickup);
+        Set(wiring, "shieldBubble", ship.transform.Find("Shield Bubble").GetComponent<Renderer>());
+        Set(wiring, "keyLight", keyLight);
         wiring.ApplyModifiedPropertiesWithoutUndo();
 
         RenderSettings.skybox = null;
@@ -145,17 +158,24 @@ public static class SkyfortSceneBuilder
         // Same framing the game uses (it follows the ship along Z at runtime).
         cameraObject.transform.position = new Vector3(0f, 2.5f, 7f) - cameraObject.transform.forward * 60f;
         cameraObject.AddComponent<AudioListener>();
+        // Retro display filter (16-BIT / CRT / ARCADE / MODERN). Its shader reference makes builds include the shader.
+        var retro = cameraObject.AddComponent<SkyfortRetroFilter>();
+        var retroWiring = new SerializedObject(retro);
+        Set(retroWiring, "shader", AssetDatabase.LoadAssetAtPath<Shader>("Assets/Shaders/SkyfortRetro.shader"));
+        retroWiring.ApplyModifiedPropertiesWithoutUndo();
         return view;
     }
 
-    private static void BuildKeyLight()
+    private static Light BuildKeyLight()
     {
+        // Its color and intensity are eased toward each level theme at runtime.
         var sun = new GameObject("Key Light").AddComponent<Light>();
         sun.type = LightType.Directional;
         sun.intensity = 1.15f;
-        sun.shadows = LightShadows.Soft;
+        sun.shadows = LightShadows.Hard; // crisp, pixel-friendly shadow edges
         sun.shadowStrength = 0.8f;
         sun.transform.rotation = Quaternion.Euler(58f, -20f, 0f);
+        return sun;
     }
 
     private static Rigidbody BuildShip(out Transform model, out ParticleSystem engineTrail)
@@ -190,6 +210,11 @@ public static class SkyfortSceneBuilder
 
         // The ground shadow is a separate object straight below the ship, so the model casts none of its own.
         DisableShadows(model);
+
+        // Translucent bubble shown while the Shield power-up is active (Sprites/Default is alpha-blended and unlit).
+        var bubble = Part(PrimitiveType.Sphere, "Shield Bubble", ship, Vector3.zero, new Vector3(3.8f, 1.5f, 3.4f), Cyan, true);
+        bubble.sharedMaterial = new Material(Shader.Find("Sprites/Default")) { name = "Shield Bubble", color = new Color(0.3f, 0.85f, 1f, 0.22f) };
+        bubble.gameObject.SetActive(false);
 
         engineTrail = new GameObject("Engine trail").AddComponent<ParticleSystem>();
         engineTrail.transform.SetParent(ship, false);
@@ -371,6 +396,61 @@ public static class SkyfortSceneBuilder
         return root.gameObject;
     }
 
+    // Power-ups: a spinning colored halo around a symbol. The game spins and bobs the whole prefab.
+    private static Transform PickupBase(string name, Color color)
+    {
+        var root = Group(name, null, Vector3.zero);
+        Ring("Halo", root, Vector3.zero, 0.75f, 0.07f, color, true, new Vector3(90f, 0f, 0f));
+        Ring("Inner halo", root, Vector3.zero, 0.55f, 0.03f, Bone, true, new Vector3(90f, 0f, 0f));
+        return root;
+    }
+
+    private static GameObject BuildRepairPickup()
+    {
+        var root = PickupBase("PowerUp Repair", Lime);
+        Part(PrimitiveType.Cube, "Cross bar", root, Vector3.zero, new Vector3(0.7f, 0.22f, 0.22f), Lime, true);
+        Part(PrimitiveType.Cube, "Cross post", root, Vector3.zero, new Vector3(0.22f, 0.7f, 0.22f), Lime, true);
+        return root.gameObject;
+    }
+
+    private static GameObject BuildFuelPickup()
+    {
+        var root = PickupBase("PowerUp Fuel", Gold);
+        Part(PrimitiveType.Cylinder, "Fuel cell", root, Vector3.zero, new Vector3(0.42f, 0.3f, 0.42f), Gold, true);
+        Part(PrimitiveType.Cylinder, "Fuel cap", root, new Vector3(0f, 0.36f, 0f), new Vector3(0.2f, 0.06f, 0.2f), Bone, true);
+        return root.gameObject;
+    }
+
+    private static GameObject BuildShieldPickup()
+    {
+        var root = PickupBase("PowerUp Shield", Cyan);
+        Part(PrimitiveType.Sphere, "Shield orb", root, Vector3.zero, Vector3.one * 0.55f, Cyan, true);
+        Ring("Orbit", root, Vector3.zero, 0.42f, 0.03f, Bone, true);
+        return root.gameObject;
+    }
+
+    private static GameObject BuildSpreadPickup()
+    {
+        var root = PickupBase("PowerUp Spread", Magenta);
+        var crystal = CreateCrystalMesh(0.14f, 0.4f, 0.2f);
+        crystal.name = "Spread crystal";
+        foreach (var angle in new[] { -32f, 0f, 32f })
+        {
+            MeshPart("Spread shard", root, Vector3.zero, new Vector3(0f, 0f, angle), crystal, Magenta, true);
+        }
+
+        return root.gameObject;
+    }
+
+    private static GameObject BuildExtraShipPickup()
+    {
+        var root = PickupBase("PowerUp Extra Ship", Bone);
+        Part(PrimitiveType.Cube, "Chevron left", root, new Vector3(-0.15f, 0f, 0f), new Vector3(0.5f, 0.14f, 0.14f), Bone, true, new Vector3(0f, 0f, 35f));
+        Part(PrimitiveType.Cube, "Chevron right", root, new Vector3(0.15f, 0f, 0f), new Vector3(0.5f, 0.14f, 0.14f), Bone, true, new Vector3(0f, 0f, -35f));
+        Part(PrimitiveType.Sphere, "Star", root, new Vector3(0f, -0.25f, 0f), Vector3.one * 0.18f, Gold, true);
+        return root.gameObject;
+    }
+
     // ---------------------------------------------------------------- Asset helpers
 
     private static GameObject SavePrefab(GameObject root, string name)
@@ -439,7 +519,7 @@ public static class SkyfortSceneBuilder
         var property = target.FindProperty(field);
         if (property == null)
         {
-            throw new System.InvalidOperationException($"SkyfortStrike has no serialized field '{field}'.");
+            throw new System.InvalidOperationException($"{target.targetObject.GetType().Name} has no serialized field '{field}'.");
         }
 
         property.objectReferenceValue = value;
