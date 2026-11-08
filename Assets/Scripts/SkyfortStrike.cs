@@ -90,7 +90,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
 
     [Header("Scene objects")]
     [SerializeField] private Camera view;
-    [Tooltip("Retro display filter on the camera (16-BIT / CRT / ARCADE / MODERN, cycled with F).")]
+    [Tooltip("Retro display filter on the camera (16-BIT / CRT / ARCADE / MODERN, cycled with M).")]
     [SerializeField] private SkyfortRetroFilter retroFilter;
     [SerializeField] private Rigidbody shipBody;
     [SerializeField] private Transform shipModel;
@@ -251,7 +251,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             return;
         }
 
-        if (Input.GetKeyDown(KeyCode.F))
+        // M (display Mode) is kept away from the WASD flight keys so it is not pressed by accident.
+        if (Input.GetKeyDown(KeyCode.M))
         {
             ShowToast($"DISPLAY: {SkyfortRetroFilter.Label(retroFilter.Cycle())}", Cyan);
         }
@@ -1429,7 +1430,38 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             Part(PrimitiveType.Cube, "Glyph", obelisk, new Vector3(0f, y, -width * 0.5f - 0.01f), new Vector3(0.3f, 0.5f, 0.02f), theme.StoneBase);
         }
 
+        // Neon traced up the four corners.
+        foreach (var cx in new[] { -1f, 1f })
+        {
+            foreach (var cz in new[] { -1f, 1f })
+            {
+                var corner = new Vector3(cx * width * 0.5f, 0f, cz * width * 0.5f);
+                NeonLine(obelisk, corner + Vector3.up * 0.3f, corner + Vector3.up * shaft, 0.05f, theme.Neon);
+            }
+        }
+
         AddBox(chunk, new Vector3(x, height * 0.5f, z), new Vector3(width, height, width));
+    }
+
+    // A thin glowing bar from a to b (local space of parent).
+    private static void NeonLine(Transform parent, Vector3 a, Vector3 b, float thickness, Color color)
+    {
+        var line = Part(PrimitiveType.Cube, "Neon", parent, (a + b) * 0.5f, new Vector3(thickness, (b - a).magnitude, thickness), color, true);
+        line.transform.localRotation = Quaternion.FromToRotation(Vector3.up, b - a);
+    }
+
+    // Neon along the four sloped edges of a pyramid whose base center is at basePosition.
+    private static void NeonPyramidEdges(Transform parent, Vector3 basePosition, float baseSize, float height, Color color)
+    {
+        var apex = basePosition + Vector3.up * height;
+        var half = baseSize * 0.5f;
+        foreach (var cx in new[] { -1f, 1f })
+        {
+            foreach (var cz in new[] { -1f, 1f })
+            {
+                NeonLine(parent, basePosition + new Vector3(cx * half, 0f, cz * half), apex, 0.06f, color);
+            }
+        }
     }
 
     private void BuildSpire(Chunk chunk, float x, float z, float baseSize, float height)
@@ -1440,6 +1472,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         Pyramid("Ice spire inner", chunk.Root, local + new Vector3(baseSize * 0.18f, 0f, -baseSize * 0.12f), new Vector3(baseSize * 0.6f, height * 0.72f, baseSize * 0.6f), theme.StoneBase);
         var cap = 0.2f;
         Pyramid("Spire tip", chunk.Root, local + new Vector3(0f, height * (1f - cap), 0f), new Vector3(baseSize * cap * 1.05f, height * cap * 1.05f, baseSize * cap * 1.05f), theme.StoneGlow, true);
+        NeonPyramidEdges(chunk.Root, local, baseSize, height, theme.Neon);
         solids.Add(new Solid
         {
             Bounds = new Bounds(new Vector3(x, height * 0.5f, z), new Vector3(baseSize, height, baseSize)),
@@ -1463,8 +1496,9 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         // Glowing capstone (the top 15% of the same slope) and a band of light around the plinth.
         var cap = 0.15f;
         Pyramid("Capstone", root, local + new Vector3(0f, 0.2f + (height - 0.2f) * (1f - cap), 0f), new Vector3(baseSize * cap * 1.04f, (height - 0.2f) * cap * 1.04f, baseSize * cap * 1.04f), chunk.Theme.StoneGlow, true);
-        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3(0f, 0.2f, -(baseSize + 0.5f) * 0.5f - 0.01f), new Vector3(baseSize + 0.5f, 0.05f, 0.03f), chunk.Theme.StoneGlow, true);
-        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3((baseSize + 0.5f) * 0.5f + 0.01f, 0.2f, 0f), new Vector3(0.03f, 0.05f, baseSize + 0.5f), chunk.Theme.StoneGlow, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3(0f, 0.2f, -(baseSize + 0.5f) * 0.5f - 0.01f), new Vector3(baseSize + 0.5f, 0.05f, 0.03f), chunk.Theme.Neon, true);
+        Part(PrimitiveType.Cube, "Plinth glow", root, local + new Vector3((baseSize + 0.5f) * 0.5f + 0.01f, 0.2f, 0f), new Vector3(0.03f, 0.05f, baseSize + 0.5f), chunk.Theme.Neon, true);
+        NeonPyramidEdges(root, local + new Vector3(0f, 0.2f, 0f), baseSize, height - 0.2f, chunk.Theme.NeonAlt);
         solids.Add(new Solid
         {
             Bounds = new Bounds(new Vector3(x, height * 0.5f, z), new Vector3(baseSize, height, baseSize)),
@@ -1479,6 +1513,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         var body = height - 1.2f;
         Part(PrimitiveType.Cylinder, "Tower body", tower, new Vector3(0f, body * 0.5f, 0f), new Vector3(radius * 2f, body * 0.5f, radius * 2f), chunk.Theme.CastleStone);
         Part(PrimitiveType.Cylinder, "Tower parapet", tower, new Vector3(0f, body + 0.06f, 0f), new Vector3(radius * 2.35f, 0.1f, radius * 2.35f), chunk.Theme.CastleTrim);
+        Ring("Neon ring", tower, new Vector3(0f, body + 0.13f, 0f), radius * 1.2f, 0.045f, chunk.Theme.NeonAlt);
+        Ring("Neon band", tower, new Vector3(0f, body * 0.5f, 0f), radius * 1.02f, 0.035f, chunk.Theme.Neon);
         Pyramid("Tower roof", tower, new Vector3(0f, body + 0.15f, 0f), new Vector3(radius * 2.1f, 1f, radius * 2.1f), chunk.Theme.Roof);
         Part(PrimitiveType.Sphere, "Roof beacon", tower, new Vector3(0f, body + 1.18f, 0f), Vector3.one * 0.18f, chunk.Theme.WindowGlow, true);
         for (var y = 1.1f; y < body - 0.5f; y += 1.4f)
@@ -1498,7 +1534,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         var localZ = z - chunk.StartZ;
         Part(PrimitiveType.Cube, "Curtain wall", root, new Vector3(centerX, height * 0.5f, localZ), new Vector3(width, height, 1.1f), chunk.Theme.CastleStone);
         Part(PrimitiveType.Cube, "Wall walk", root, new Vector3(centerX, height + 0.05f, localZ), new Vector3(width, 0.1f, 1.3f), chunk.Theme.CastleTrim);
-        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), chunk.Theme.RampartGlow, true);
+        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), chunk.Theme.Neon, true);
+        Part(PrimitiveType.Cube, "Wall top neon", root, new Vector3(centerX, height + 0.1f, localZ - 0.67f), new Vector3(width, 0.05f, 0.05f), chunk.Theme.NeonAlt, true);
         for (var x = fromX + 0.35f; x < toX - 0.2f; x += 0.9f)
         {
             Part(PrimitiveType.Cube, "Merlon", root, new Vector3(x, height + 0.3f, localZ - 0.45f), new Vector3(0.45f, 0.4f, 0.3f), chunk.Theme.CastleStone);
@@ -1517,6 +1554,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         Part(PrimitiveType.Cube, "Keep", root, local + new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, depth), chunk.Theme.CastleStone);
         Part(PrimitiveType.Cube, "Keep roof", root, local + new Vector3(0f, height + 0.05f, 0f), new Vector3(width + 0.2f, 0.1f, depth + 0.2f), chunk.Theme.CastleTrim);
         Part(PrimitiveType.Cube, "Keep door", root, local + new Vector3(0f, 0.7f, -depth * 0.5f - 0.01f), new Vector3(1f, 1.4f, 0.04f), chunk.Theme.WindowGlow, true);
+        Part(PrimitiveType.Cube, "Keep roof neon", root, local + new Vector3(0f, height + 0.1f, -depth * 0.5f - 0.11f), new Vector3(width + 0.2f, 0.05f, 0.05f), chunk.Theme.NeonAlt, true);
+        Part(PrimitiveType.Cube, "Keep side neon", root, local + new Vector3(width * 0.5f + 0.11f, height + 0.1f, 0f), new Vector3(0.05f, 0.05f, depth + 0.2f), chunk.Theme.NeonAlt, true);
         for (var mx = -width * 0.5f + 0.3f; mx < width * 0.5f; mx += 0.8f)
         {
             Part(PrimitiveType.Cube, "Merlon", root, local + new Vector3(mx, height + 0.3f, -depth * 0.5f + 0.15f), new Vector3(0.4f, 0.4f, 0.3f), chunk.Theme.CastleStone);
@@ -1543,13 +1582,13 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             var pylon = Group("Field pylon", chunk.Root, new Vector3(side * 7.4f, 0f, localZ));
             Beveled("Pylon base", pylon, new Vector3(0f, 0.3f, 0f), new Vector3(1.2f, 0.6f, 1.2f), Hull, 0.12f);
             Part(PrimitiveType.Cylinder, "Pylon mast", pylon, new Vector3(0f, CeilingHeight * 0.5f, 0f), new Vector3(0.45f, CeilingHeight * 0.5f, 0.45f), Armor);
-            Ring("Emitter", pylon, new Vector3(0f, bottom + 0.1f, 0f), 0.4f, 0.07f, Magenta);
-            Ring("Emitter", pylon, new Vector3(0f, Mathf.Min(top, CeilingHeight) - 0.1f, 0f), 0.4f, 0.07f, Magenta);
+            Ring("Emitter", pylon, new Vector3(0f, bottom + 0.1f, 0f), 0.4f, 0.07f, NeonGreen);
+            Ring("Emitter", pylon, new Vector3(0f, Mathf.Min(top, CeilingHeight) - 0.1f, 0f), 0.4f, 0.07f, NeonGreen);
         }
 
         for (var y = bottom + 0.2f; y < top - 0.1f; y += 0.42f)
         {
-            var beam = Part(PrimitiveType.Cylinder, "Force beam", chunk.Root, new Vector3(0f, y, localZ), new Vector3(0.05f, 7.3f, 0.05f), Magenta, true, new Vector3(0f, 0f, 90f));
+            var beam = Part(PrimitiveType.Cylinder, "Force beam", chunk.Root, new Vector3(0f, y, localZ), new Vector3(0.05f, 7.3f, 0.05f), NeonGreen, true, new Vector3(0f, 0f, 90f));
             beam.sharedMaterial = fieldMaterial;
         }
 
@@ -1569,7 +1608,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
 
         for (var x = -6f; x <= 6f; x += 3f)
         {
-            Part(PrimitiveType.Cube, "Deck lane", root, new Vector3(x, 0.006f, mid), new Vector3(0.05f, 0.02f, ChunkLength), chunk.Theme.DeckLine);
+            Part(PrimitiveType.Cube, "Deck lane neon", root, new Vector3(x, 0.006f, mid), new Vector3(0.06f, 0.02f, ChunkLength), arena ? Red : chunk.Theme.Neon, true);
         }
 
         // Tall far wall with altitude rungs, low near wall so it never hides the ship.
@@ -1601,7 +1640,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
 
         for (var z = 0f; z < ChunkLength; z += 6f)
         {
-            Part(PrimitiveType.Cube, "Nav grid", root, new Vector3(0f, 0.01f, z), new Vector3(WallHalfWidth * 2f, 0.01f, 0.03f), Color.Lerp(chunk.Theme.MidFloor, chunk.Theme.MidSpeck, 0.3f));
+            Part(PrimitiveType.Cube, "Nav grid neon", root, new Vector3(0f, 0.01f, z), new Vector3(WallHalfWidth * 2f, 0.01f, 0.04f), Color.Lerp(Color.black, chunk.Theme.Neon, 0.45f), true);
         }
     }
 
@@ -1610,7 +1649,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     private void AnimateWorld()
     {
         var pulse = 0.55f + 0.45f * Mathf.Sin(Time.time * 18f);
-        fieldMaterial.SetColor("_EmissionColor", Magenta * (1.2f + pulse * 1.6f));
+        fieldMaterial.SetColor("_EmissionColor", NeonGreen * (1.2f + pulse * 1.6f));
         UpdateAtmosphere(false);
         if (flash.intensity > 0f)
         {

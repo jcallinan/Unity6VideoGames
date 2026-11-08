@@ -174,7 +174,7 @@ public static class SkyfortHud
 {
     private static readonly Color Cyan = new(0.12f, 0.82f, 1f);
     private static readonly Color Gold = new(1f, 0.62f, 0.12f);
-    private static readonly Color Red = new(1f, 0.14f, 0.22f);
+    private static readonly Color Red = new(1f, 0.18f, 0.08f);
 
     // Fills the scene's HUD UIDocument (its PanelSettings asset lives in Assets/UI) and binds it to the state.
     public static void Build(UIDocument document, SkyfortHudState state)
@@ -268,7 +268,7 @@ public static class SkyfortHud
         power.style.left = 24;
         power.style.bottom = 80;
 
-        var help = new Label("ARROWS/WASD fly   SPACE fire   F display filter   P pause   R restart") { pickingMode = PickingMode.Ignore };
+        var help = new Label("ARROWS/WASD fly   SPACE fire   M display mode   P pause   R restart") { pickingMode = PickingMode.Ignore };
         help.style.position = Position.Absolute;
         help.style.right = 24;
         help.style.bottom = 22;

@@ -12,8 +12,8 @@ public static class SkyfortModels
     public static readonly Color Bone = new(0.78f, 0.86f, 0.95f);
     public static readonly Color Cyan = new(0.12f, 0.82f, 1f);
     public static readonly Color Gold = new(1f, 0.62f, 0.12f);
-    public static readonly Color Red = new(1f, 0.14f, 0.22f);
-    public static readonly Color Magenta = new(1f, 0.2f, 0.85f);
+    public static readonly Color Red = new(1f, 0.18f, 0.08f);
+    public static readonly Color NeonGreen = new(0.1f, 1f, 0.5f);
     public static readonly Color Lime = new(0.45f, 1f, 0.35f);
     public static readonly Color VoidColor = new(0.015f, 0.02f, 0.06f);
     public static readonly Color ShadowTint = new(0.005f, 0.008f, 0.015f);
@@ -99,17 +99,12 @@ public static class SkyfortModels
         PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localScale,
         Color color, bool emissive = false, Vector3 localEuler = default)
     {
-        var part = GameObject.CreatePrimitive(type);
-        part.name = name;
-        // Gameplay uses its own collision math, so primitives drop their colliders (also when built in the Editor).
-        if (Application.isPlaying)
-        {
-            Object.Destroy(part.GetComponent<Collider>());
-        }
-        else
-        {
-            Object.DestroyImmediate(part.GetComponent<Collider>());
-        }
+        // Gameplay uses its own collision math, so parts are just a mesh and renderer. Using the built-in primitive
+        // mesh directly (instead of GameObject.CreatePrimitive) never asks for a collider, whose classes WebGL
+        // builds strip because nothing else in the project uses them.
+        var part = new GameObject(name);
+        part.AddComponent<MeshFilter>().sharedMesh = PrimitiveMesh(type);
+        part.AddComponent<MeshRenderer>();
         part.transform.SetParent(parent, false);
         part.transform.localPosition = localPosition;
         part.transform.localScale = localScale;
@@ -122,6 +117,28 @@ public static class SkyfortModels
         }
 
         return renderer;
+    }
+
+    private static readonly Dictionary<PrimitiveType, Mesh> PrimitiveMeshes = new();
+
+    private static Mesh PrimitiveMesh(PrimitiveType type)
+    {
+        if (PrimitiveMeshes.TryGetValue(type, out var mesh) && mesh != null)
+        {
+            return mesh;
+        }
+
+        mesh = Resources.GetBuiltinResource<Mesh>($"{type}.fbx");
+        if (mesh == null)
+        {
+            // Fallback: borrow the mesh from a temporary primitive.
+            var temp = GameObject.CreatePrimitive(type);
+            mesh = temp.GetComponent<MeshFilter>().sharedMesh;
+            Object.DestroyImmediate(temp);
+        }
+
+        PrimitiveMeshes[type] = mesh;
+        return mesh;
     }
 
     public static Renderer Beveled(

@@ -31,6 +31,10 @@ public sealed class SkyfortTheme
     public Color MidSpeck;
     public bool MidSpecksGlow;
 
+    // Neon accents: Neon traces the deck grid, edges and the ship; NeonAlt is the contrasting second color.
+    public Color Neon;
+    public Color NeonAlt;
+
     public Color ArenaDeck => Color.Lerp(Deck, Color.black, 0.4f);
 }
 
@@ -59,7 +63,9 @@ public static class SkyfortThemes
         WindowGlow = new Color(1f, 0.85f, 0.15f),
         MidFloor = new Color(0.015f, 0.02f, 0.06f),
         MidSpeck = new Color(0.5f, 0.7f, 1f),
-        MidSpecksGlow = true
+        MidSpecksGlow = true,
+        Neon = new Color(0.2f, 0.95f, 1f),
+        NeonAlt = new Color(0.2f, 1f, 0.45f)
     };
 
     public static readonly SkyfortTheme DuneRuins = new()
@@ -84,7 +90,9 @@ public static class SkyfortThemes
         WindowGlow = new Color(0.12f, 0.82f, 1f),
         MidFloor = new Color(0.36f, 0.26f, 0.15f),
         MidSpeck = new Color(0.25f, 0.17f, 0.1f),
-        MidSpecksGlow = false
+        MidSpecksGlow = false,
+        Neon = new Color(0.15f, 0.9f, 1f),
+        NeonAlt = new Color(0.55f, 1f, 0.2f)
     };
 
     public static readonly SkyfortTheme IceCitadel = new()
@@ -109,7 +117,9 @@ public static class SkyfortThemes
         WindowGlow = new Color(0.4f, 0.95f, 1f),
         MidFloor = new Color(0.04f, 0.07f, 0.14f),
         MidSpeck = new Color(0.4f, 1f, 0.7f),
-        MidSpecksGlow = true
+        MidSpecksGlow = true,
+        Neon = new Color(0.4f, 1f, 0.9f),
+        NeonAlt = new Color(0.25f, 1f, 0.6f)
     };
 
     public static readonly SkyfortTheme[] All = { Skyfort, DuneRuins, IceCitadel };

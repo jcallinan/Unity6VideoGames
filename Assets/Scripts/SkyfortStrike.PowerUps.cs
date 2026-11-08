@@ -114,7 +114,7 @@ public sealed partial class SkyfortStrike
 
         if (fired)
         {
-            sfx.PlayOneShot(sounds.Laser, 0.55f);
+            sfx.PlayOneShot(sounds.Laser, 0.3f);
         }
     }
 
@@ -221,8 +221,8 @@ public sealed partial class SkyfortStrike
                 break;
             case PickupKind.Spread:
                 spreadUntil = Time.time + SpreadDuration;
-                Explode(position, Magenta, 24, false);
-                ShowToast("SPREAD SHOT", Magenta);
+                Explode(position, NeonGreen, 24, false);
+                ShowToast("SPREAD SHOT", NeonGreen);
                 break;
             case PickupKind.ExtraShip:
                 ships = Mathf.Min(MaxShips, ships + 1);
