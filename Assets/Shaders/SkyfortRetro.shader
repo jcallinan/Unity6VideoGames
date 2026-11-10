@@ -34,6 +34,12 @@ Shader "Hidden/Skyfort/Retro"
             float _Fringe;        // horizontal color fringing, in virtual pixels
             float _Saturation;    // 1 = unchanged
             float _Contrast;      // 1 = unchanged; higher deepens darks and brightens lights
+            float _Smear;         // horizontal color smear in virtual pixels (Atari-style streaking)
+            float _Mono;          // 0 = full color, 1 = four-shade monochrome ramp
+            float4 _MonoDark;
+            float4 _MonoLight;
+            float _Tint;          // 0..1 blend toward _TintColor (phosphor / palette cast)
+            float4 _TintColor;
 
             static const float Bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
 
@@ -76,6 +82,12 @@ Shader "Hidden/Skyfort/Retro"
                     soft.b = Soft(uv - float2(px.x * _Fringe, 0), px).b;
                 }
 
+                if (_Smear > 0.0)
+                {
+                    float2 sm = float2(px.x * _Smear, 0);
+                    hard = hard * 0.4 + (tex2D(_MainTex, snapped + sm).rgb + tex2D(_MainTex, snapped - sm).rgb) * 0.3;
+                }
+
                 float3 color = lerp(hard, soft, _Softness);
 
                 // Wide neon bloom: bright pixels spill light over a few virtual pixels around them.
@@ -104,9 +116,24 @@ Shader "Hidden/Skyfort/Retro"
                 color = saturate(color + threshold * _Dither / _Levels);
                 color = floor(color * _Levels + 0.5) / _Levels;
 
-                // Soft scanlines follow the virtual pixel rows.
+                if (_Mono > 0.0)
+                {
+                    // Four-shade monochrome ramp (dot-matrix LCD look).
+                    float l = dot(color, float3(0.299, 0.587, 0.114));
+                    l = saturate(l + threshold * 0.12);
+                    l = floor(l * 3.0 + 0.5) / 3.0;
+                    color = lerp(color, lerp(_MonoDark.rgb, _MonoLight.rgb, l), _Mono);
+                }
+
+                if (_Tint > 0.0)
+                {
+                    float tl = dot(color, float3(0.299, 0.587, 0.114));
+                    color = lerp(color, _TintColor.rgb * (0.25 + tl * 1.1), _Tint);
+                }
+
+                // Scanlines follow the virtual pixel rows; at full strength the gaps between rows are deep.
                 float row = frac(uv.y * _Resolution.y);
-                color *= lerp(1.0, 0.72 + 0.28 * sin(row * 3.14159), _Scanlines);
+                color *= lerp(1.0, 0.3 + 0.7 * sin(row * 3.14159), _Scanlines);
 
                 // Faint RGB aperture grille on real screen columns.
                 float column = fmod(floor(i.uv.x * _ScreenParams.x), 3.0);

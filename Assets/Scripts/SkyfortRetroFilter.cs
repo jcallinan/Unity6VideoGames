@@ -1,20 +1,24 @@
 using UnityEngine;
 
 // Retro display filter on the game camera (Built-in Render Pipeline image effect using OnRenderImage).
-// Modes cycle with M in game and the choice is remembered:
-//   16-BIT  - 16-bit-console look: ~360-line pixels with lightly softened edges, 15-bit color, neon glow
-//   CRT     - on a gently curved tube: soft scanlines, faint RGB mask, slight color fringing, stronger glow
-//   ARCADE  - early-80s arcade: chunkier pixels, fewer colors, CRT traits
+// Modes cycle with M in game and the choice is remembered. Each one is meant to look clearly different:
+//   16-BIT  - clean 16-bit-console look: fine pixels, 15-bit color, neon glow, no scanlines
+//   CRT     - curved tube: visible scanlines, RGB mask, color fringing, heavy glow and vignette
+//   ARCADE  - early-80s cabinet: chunky pixels, 512 colors, deep scanlines, punchy saturation
+//   ATARI   - 2600-style: 320 x 240 pixels, a limited set of flat colors, lightly streaked rows with dark gaps
+//   MONO    - four-shade green handheld LCD
 //   MODERN  - no filter
-// The modes sit between razor-sharp pixels and a blurry image: edges stay crisp with just a touch of softness.
 [RequireComponent(typeof(Camera))]
 public sealed class SkyfortRetroFilter : MonoBehaviour
 {
-    public enum Mode { SixteenBit, Crt, Arcade, Modern }
+    public enum Mode { SixteenBit, Crt, Arcade, Atari, Mono, Modern }
+
+    private const int ModeCount = 6;
 
     private struct Settings
     {
         public int Lines;
+        public int Width;        // 0 = follow the screen aspect
         public float Softness;
         public float Levels;
         public float Dither;
@@ -26,9 +30,15 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         public float Fringe;
         public float Saturation;
         public float Contrast;
+        public float Smear;
+        public float Mono;
+        public Color MonoDark;
+        public Color MonoLight;
+        public float Tint;
+        public Color TintColor;
     }
 
-    private const string PrefsKey = "SkyfortStrike.RetroFilter";
+    private const string PrefsKey = "SkyfortStrike.RetroFilter2";
 
     [Tooltip("Hidden/Skyfort/Retro (Assets/Shaders/SkyfortRetro.shader). Referenced here so builds include it.")]
     [SerializeField] private Shader shader;
@@ -46,6 +56,12 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     private static readonly int FringeId = Shader.PropertyToID("_Fringe");
     private static readonly int SaturationId = Shader.PropertyToID("_Saturation");
     private static readonly int ContrastId = Shader.PropertyToID("_Contrast");
+    private static readonly int SmearId = Shader.PropertyToID("_Smear");
+    private static readonly int MonoId = Shader.PropertyToID("_Mono");
+    private static readonly int MonoDarkId = Shader.PropertyToID("_MonoDark");
+    private static readonly int MonoLightId = Shader.PropertyToID("_MonoLight");
+    private static readonly int TintId = Shader.PropertyToID("_Tint");
+    private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
 
     private Material material;
 
@@ -56,17 +72,19 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         Mode.SixteenBit => "16-BIT",
         Mode.Crt => "CRT",
         Mode.Arcade => "ARCADE",
+        Mode.Atari => "ATARI",
+        Mode.Mono => "MONO LCD",
         _ => "MODERN"
     };
 
     private void Awake()
     {
-        mode = (Mode)Mathf.Clamp(PlayerPrefs.GetInt(PrefsKey, (int)mode), 0, 3);
+        mode = (Mode)Mathf.Clamp(PlayerPrefs.GetInt(PrefsKey, (int)mode), 0, ModeCount - 1);
     }
 
     public Mode Cycle()
     {
-        mode = (Mode)(((int)mode + 1) % 4);
+        mode = (Mode)(((int)mode + 1) % ModeCount);
         PlayerPrefs.SetInt(PrefsKey, (int)mode);
         PlayerPrefs.Save();
         return mode;
@@ -76,13 +94,24 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     {
         Mode.Crt => new Settings
         {
-            Lines = 300, Softness = 0.18f, Levels = 31f, Dither = 0.08f, Scanlines = 0.2f, Curvature = 0.03f,
-            Mask = 0.1f, Vignette = 0.3f, Glow = 0.9f, Fringe = 0.1f, Saturation = 1.15f, Contrast = 1.2f
+            Lines = 300, Softness = 0.35f, Levels = 31f, Dither = 0.08f, Scanlines = 0.55f, Curvature = 0.09f,
+            Mask = 0.4f, Vignette = 0.55f, Glow = 1.4f, Fringe = 0.3f, Saturation = 1.2f, Contrast = 1.2f
         },
         Mode.Arcade => new Settings
         {
-            Lines = 240, Softness = 0.06f, Levels = 15f, Dither = 0.2f, Scanlines = 0.25f, Curvature = 0.045f,
-            Mask = 0.15f, Vignette = 0.35f, Glow = 1.0f, Fringe = 0.08f, Saturation = 1.2f, Contrast = 1.25f
+            Lines = 224, Softness = 0.04f, Levels = 7f, Dither = 0.5f, Scanlines = 0.75f, Curvature = 0.05f,
+            Mask = 0.35f, Vignette = 0.45f, Glow = 1.2f, Fringe = 0.1f, Saturation = 1.5f, Contrast = 1.35f
+        },
+        Mode.Atari => new Settings
+        {
+            Lines = 240, Width = 320, Softness = 0f, Levels = 5f, Dither = 0f, Scanlines = 0.5f, Curvature = 0.01f,
+            Mask = 0f, Vignette = 0.15f, Glow = 0f, Fringe = 0f, Saturation = 1.4f, Contrast = 1.35f, Smear = 1f
+        },
+        Mode.Mono => new Settings
+        {
+            Lines = 144, Softness = 0.08f, Levels = 255f, Dither = 0f, Scanlines = 0.18f, Curvature = 0f,
+            Mask = 0f, Vignette = 0.3f, Glow = 0f, Fringe = 0f, Saturation = 1f, Contrast = 1.25f,
+            Mono = 1f, MonoDark = new Color(0.05f, 0.2f, 0.06f), MonoLight = new Color(0.62f, 0.76f, 0.07f)
         },
         _ => new Settings
         {
@@ -106,7 +135,8 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
 
         var settings = For(mode);
         var aspect = (float)source.width / Mathf.Max(1, source.height);
-        material.SetVector(ResolutionId, new Vector2(Mathf.Round(settings.Lines * aspect), settings.Lines));
+        var width = settings.Width > 0 ? settings.Width : Mathf.Round(settings.Lines * aspect);
+        material.SetVector(ResolutionId, new Vector2(width, settings.Lines));
         material.SetFloat(SoftnessId, settings.Softness);
         material.SetFloat(LevelsId, settings.Levels);
         material.SetFloat(DitherId, settings.Dither);
@@ -118,6 +148,12 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         material.SetFloat(FringeId, settings.Fringe);
         material.SetFloat(SaturationId, settings.Saturation);
         material.SetFloat(ContrastId, settings.Contrast);
+        material.SetFloat(SmearId, settings.Smear);
+        material.SetFloat(MonoId, settings.Mono);
+        material.SetColor(MonoDarkId, settings.MonoDark);
+        material.SetColor(MonoLightId, settings.MonoLight);
+        material.SetFloat(TintId, settings.Tint);
+        material.SetColor(TintColorId, settings.TintColor);
         source.filterMode = FilterMode.Bilinear; // the soft blur relies on filtered sampling
         Graphics.Blit(source, destination, material);
     }

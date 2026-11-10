@@ -11,8 +11,7 @@ using Random = UnityEngine.Random;
 //
 // The camera, lights, fighter, Warden, effects and HUD live in the scene, and the enemies and projectiles are
 // prefabs; this component only references them (see the Inspector). Only the level itself is streamed in at
-// runtime, chunk by chunk, under the "Level" object. Rebuild those scene objects and prefabs with
-// Skyfort > Rebuild Scene and Prefabs (Assets/Editor/SkyfortSceneBuilder.cs).
+// runtime, chunk by chunk, under the "Level" object. Edit the scene objects and prefabs directly in the Editor.
 public sealed partial class SkyfortStrike : MonoBehaviour
 {
     private const float CorridorHalfWidth = 6.2f;
@@ -48,6 +47,9 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         public float StartZ;
         public bool Space;
         public SkyfortTheme Theme;
+        public ChunkKind Kind;
+        public bool Planned;      // came from the level plan (so it is put back when a crash discards it)
+        public bool FirstPerson;  // flown through the cockpit camera
     }
 
     private struct Solid
@@ -85,12 +87,12 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     private readonly List<Target> targets = new();
     private readonly List<Projectile> lasers = new();
     private readonly List<Projectile> bolts = new();
-    private readonly Queue<(ChunkKind Kind, SkyfortTheme Theme)> plan = new();
+    private readonly Queue<(ChunkKind Kind, SkyfortTheme Theme, bool FirstPerson)> plan = new();
     private readonly SkyfortHudState hud = new();
 
     [Header("Scene objects")]
     [SerializeField] private Camera view;
-    [Tooltip("Retro display filter on the camera (16-BIT / CRT / ARCADE / MODERN, cycled with M).")]
+    [Tooltip("Retro display filter on the camera (16-BIT / CRT / ARCADE / ATARI / MONO LCD / MODERN, cycled with M).")]
     [SerializeField] private SkyfortRetroFilter retroFilter;
     [SerializeField] private Rigidbody shipBody;
     [SerializeField] private Transform shipModel;
@@ -149,6 +151,10 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     private float nextFuelAlarm;
     private bool paused;
     private int safeChunks;
+    private float fpBlend;
+    private bool cockpitActive;
+    private Quaternion isoRotation = Quaternion.Euler(33f, -45f, 0f);
+    private Transform reticle;
     private Vector3 bounce;
     private float nextBounceFx;
     private bool safeSpace;
@@ -164,6 +170,15 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         // Animate a copy so play mode never edits the material asset itself.
         fieldMaterial = forceFieldMaterial != null ? new Material(forceFieldMaterial) : null;
         QualitySettings.shadowDistance = 90f;
+        if (shipModel != null)
+        {
+            SkyfortFighter.Build(shipModel);
+        }
+
+        if (view != null)
+        {
+            isoRotation = view.transform.rotation;
+        }
     }
 
     private bool HasSceneReferences()
@@ -322,6 +337,75 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         shipBody.linearVelocity = velocity;
     }
 
+    // Cockpit stretches blend the isometric orthographic camera into a perspective view from the ship's nose and
+    // back, by interpolating the projection matrix, camera position and rotation together.
+    private void UpdateCameraBlend()
+    {
+        var aheadChunk = ChunkAt(ShipPosition.z + 12f);
+        var wantCockpit = aheadChunk != null && aheadChunk.FirstPerson;
+        fpBlend = Mathf.MoveTowards(fpBlend, wantCockpit ? 1f : 0f, Time.deltaTime / 1.2f);
+        var t = fpBlend * fpBlend * (3f - 2f * fpBlend);
+
+        if (wantCockpit != cockpitActive)
+        {
+            cockpitActive = wantCockpit;
+            if (phase == Phase.Playing)
+            {
+                ShowToast(wantCockpit ? "COCKPIT VIEW" : "TACTICAL VIEW", Cyan);
+            }
+        }
+
+        var focus = new Vector3(0f, 2.5f, ship.position.z + 7f);
+        var isoPosition = focus - isoRotation * Vector3.forward * 60f;
+        var cockpitPosition = ship.position + new Vector3(0f, 0.45f, 1.1f);
+        var cockpitRotation = Quaternion.Euler(-steer.y * 3f, steer.x * 2f, -steer.x * 6f);
+
+        view.transform.SetPositionAndRotation(
+            Vector3.Lerp(isoPosition, cockpitPosition, t),
+            Quaternion.Slerp(isoRotation, cockpitRotation, t));
+
+        if (t <= 0.0005f)
+        {
+            view.ResetProjectionMatrix();
+        }
+        else
+        {
+            var aspect = view.aspect;
+            var size = view.orthographicSize;
+            var ortho = Matrix4x4.Ortho(-size * aspect, size * aspect, -size, size, 1f, 200f);
+            var persp = Matrix4x4.Perspective(78f, aspect, 0.3f, 110f);
+            var blended = new Matrix4x4();
+            for (var i = 0; i < 16; i++)
+            {
+                blended[i] = Mathf.Lerp(ortho[i], persp[i], t);
+            }
+
+            view.projectionMatrix = blended;
+        }
+
+        // The ship model would sit right in front of the lens; a reticle shows where the lasers go.
+        var blinking = Time.time < invulnerableUntil && Mathf.Repeat(Time.time * 10f, 1f) < 0.35f;
+        shipModel.gameObject.SetActive(t < 0.7f && !blinking);
+        if (reticle == null)
+        {
+            reticle = BuildReticle();
+        }
+
+        reticle.gameObject.SetActive(t > 0.7f && phase == Phase.Playing);
+        reticle.position = ship.position + new Vector3(0f, 0f, 14f);
+    }
+
+    private Transform BuildReticle()
+    {
+        var root = Group("Reticle", null, Vector3.zero);
+        var color = new Color(0.3f, 1f, 0.5f);
+        Part(PrimitiveType.Cube, "Reticle bar", root, new Vector3(0f, 0.55f, 0f), new Vector3(0.06f, 0.4f, 0.06f), color, true);
+        Part(PrimitiveType.Cube, "Reticle bar", root, new Vector3(0f, -0.55f, 0f), new Vector3(0.06f, 0.4f, 0.06f), color, true);
+        Part(PrimitiveType.Cube, "Reticle bar", root, new Vector3(0.55f, 0f, 0f), new Vector3(0.4f, 0.06f, 0.06f), color, true);
+        Part(PrimitiveType.Cube, "Reticle bar", root, new Vector3(-0.55f, 0f, 0f), new Vector3(0.4f, 0.06f, 0.06f), color, true);
+        return root;
+    }
+
     private void LateUpdate()
     {
         if (view == null || ship == null)
@@ -329,8 +413,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             return;
         }
 
-        var focus = new Vector3(0f, 2.5f, ship.position.z + 7f);
-        view.transform.position = focus - view.transform.forward * 60f;
+        UpdateCameraBlend();
         shipShadow.position = new Vector3(ship.position.x, 0.03f, ship.position.z);
         var shadowScale = Mathf.Lerp(1f, 0.55f, (ship.position.y - MinAltitude) / (MaxAltitude - MinAltitude));
         shipShadow.localScale = new Vector3(1.5f * shadowScale, 0.01f, 1.9f * shadowScale);
@@ -347,6 +430,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         AudioListener.pause = false;
         level = 1;
         score = 0;
+        fpBlend = 0f;
+        cockpitActive = false;
         ships = StartingShips;
         speed = BaseSpeed;
         ClearWorld();
@@ -424,7 +509,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             // Drop the section we crashed in (and everything ahead), respawn on two clear chunks, then resume.
             var z = ShipPosition.z;
             safeSpace = CurrentChunk()?.Space == true;
-            TrimChunksBeyond(z - ChunkLength);
+            // The discarded sections go back to the front of the plan, so their enemies are not lost.
+            TrimChunksBeyond(z - ChunkLength, true);
             safeChunks = 2;
             ResetShip(spawnZ + 3f);
             StreamLevel();
@@ -522,9 +608,6 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         // Nose pitches up and the wings wobble while a bounce is still carrying the ship.
         var wobble = Mathf.Sin(Time.time * 38f) * Mathf.Min(bounce.magnitude, 12f) * 1.6f;
         shipModel.localRotation = Quaternion.Euler(-steer.y * 14f - bounce.y * 2.2f, 0f, -steer.x * 28f + wobble);
-
-        var blinking = Time.time < invulnerableUntil && Mathf.Repeat(Time.time * 10f, 1f) < 0.35f;
-        shipModel.gameObject.SetActive(!blinking);
 
         var firing = Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.J) || Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.LeftControl);
         if (firing && Time.time >= nextFire)
@@ -1122,12 +1205,34 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     {
         // Each level has its own theme and obstacle mix: first half, a mid-level drone zone, second half, then the Warden.
         var theme = SkyfortThemes.ForLevel(number);
+        // Levels 2 and 3 fly one stretch of the second half through the cockpit camera.
+        var cockpit = theme == SkyfortThemes.DuneRuins || theme == SkyfortThemes.IceCitadel;
         ChunkKind[] firstHalf;
         ChunkKind[] secondHalf;
         if (theme == SkyfortThemes.DuneRuins)
         {
             firstHalf = new[] { ChunkKind.Pyramids, ChunkKind.Obelisks, ChunkKind.PyramidRow, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
             secondHalf = new[] { ChunkKind.Obelisks, ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.CastleKeep, ChunkKind.PyramidRow, ChunkKind.TurretRow, ChunkKind.Mixed, ChunkKind.RadarSite };
+        }
+        else if (theme == SkyfortThemes.VioletBastion)
+        {
+            firstHalf = new[] { ChunkKind.Pyramids, ChunkKind.PyramidRow, ChunkKind.FieldLow, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.FieldLow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite };
+        }
+        else if (theme == SkyfortThemes.AzureCauseway)
+        {
+            firstHalf = new[] { ChunkKind.Obelisks, ChunkKind.CastleWall, ChunkKind.Obelisks, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.Obelisks, ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.FieldLow, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite };
+        }
+        else if (theme == SkyfortThemes.BrickBulwark)
+        {
+            firstHalf = new[] { ChunkKind.CastleWall, ChunkKind.PyramidRow, ChunkKind.CastleKeep, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.CastleKeep, ChunkKind.CastleWall, ChunkKind.Pyramids, ChunkKind.CastleWall, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.FieldLow };
+        }
+        else if (theme == SkyfortThemes.Refinery)
+        {
+            firstHalf = new[] { ChunkKind.Pyramids, ChunkKind.PyramidRow, ChunkKind.Obelisks, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.Mixed };
+            secondHalf = new[] { ChunkKind.Pyramids, ChunkKind.PyramidRow, ChunkKind.CastleWall, ChunkKind.Obelisks, ChunkKind.Mixed, ChunkKind.TurretRow, ChunkKind.RadarSite, ChunkKind.FieldLow };
         }
         else if (theme == SkyfortThemes.IceCitadel)
         {
@@ -1151,13 +1256,13 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         }
 
         Add(ChunkKind.Entry);
-        AddFortress(secondHalf, 7 + extra);
+        AddFortress(secondHalf, 7 + extra, cockpit);
         Add(ChunkKind.Exit);
         Add(ChunkKind.BossArena);
 
-        void Add(ChunkKind kind) => plan.Enqueue((kind, theme));
+        void Add(ChunkKind kind, bool firstPerson = false) => plan.Enqueue((kind, theme, firstPerson));
 
-        void AddFortress(ChunkKind[] pool, int count)
+        void AddFortress(ChunkKind[] pool, int count, bool cockpitRun = false)
         {
             var last = ChunkKind.Entry;
             for (var i = 0; i < count; i++)
@@ -1173,7 +1278,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
                     while (next == last);
                 }
 
-                Add(next);
+                Add(next, cockpitRun && i >= 2 && i <= 7);
                 last = next;
             }
         }
@@ -1187,6 +1292,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         {
             ChunkKind kind;
             var theme = lastTheme;
+            var planned = false;
+            var firstPerson = false;
             if (safeChunks > 0)
             {
                 safeChunks--;
@@ -1194,7 +1301,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             }
             else if (plan.Count > 0)
             {
-                (kind, theme) = plan.Dequeue();
+                (kind, theme, firstPerson) = plan.Dequeue();
+                planned = true;
             }
             else
             {
@@ -1202,7 +1310,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
             }
 
             lastTheme = theme;
-            BuildChunk(kind, theme, spawnZ);
+            BuildChunk(kind, theme, spawnZ, planned, firstPerson);
             spawnZ += ChunkLength;
         }
 
@@ -1215,10 +1323,10 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         }
     }
 
-    private Chunk CurrentChunk()
+    private Chunk CurrentChunk() => ship == null ? null : ChunkAt(ShipPosition.z);
+
+    private Chunk ChunkAt(float z)
     {
-        if (ship == null) return null;
-        var z = ShipPosition.z;
         foreach (var chunk in chunks)
         {
             if (z >= chunk.StartZ && z < chunk.StartZ + ChunkLength) return chunk;
@@ -1227,13 +1335,40 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         return null;
     }
 
-    private void TrimChunksBeyond(float z)
+    private void TrimChunksBeyond(float z, bool requeue = false)
     {
+        var removed = new List<Chunk>();
         for (var i = chunks.Count - 1; i >= 0; i--)
         {
             if (chunks[i].StartZ > z)
             {
+                // A Warden arena that has already triggered the boss is not replayed.
+                if (requeue && chunks[i].Planned && !(chunks[i].Kind == ChunkKind.BossArena && !bossPending))
+                {
+                    removed.Add(chunks[i]);
+                }
+
                 RemoveChunk(chunks[i]);
+            }
+        }
+
+        if (removed.Count > 0)
+        {
+            removed.Sort((a, b) => a.StartZ.CompareTo(b.StartZ));
+            var rest = plan.ToArray();
+            plan.Clear();
+            foreach (var chunk in removed)
+            {
+                plan.Enqueue((chunk.Kind, chunk.Theme, chunk.FirstPerson));
+                if (chunk.Kind == ChunkKind.BossArena)
+                {
+                    bossPending = false; // set again when the arena is rebuilt
+                }
+            }
+
+            foreach (var entry in rest)
+            {
+                plan.Enqueue(entry);
             }
         }
 
@@ -1263,14 +1398,17 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         }
     }
 
-    private void BuildChunk(ChunkKind kind, SkyfortTheme theme, float z0)
+    private void BuildChunk(ChunkKind kind, SkyfortTheme theme, float z0, bool planned, bool firstPerson)
     {
         var chunk = new Chunk
         {
             Root = Group($"{theme.Name} {kind} @ {z0:0}", levelRoot, new Vector3(0f, 0f, z0)),
             StartZ = z0,
             Space = kind is ChunkKind.Space or ChunkKind.Drift,
-            Theme = theme
+            Theme = theme,
+            Kind = kind,
+            Planned = planned,
+            FirstPerson = firstPerson
         };
         chunks.Add(chunk);
         var mid = z0 + ChunkLength * 0.5f;
@@ -1487,8 +1625,69 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         solids.Add(new Solid { Bounds = new Bounds(center, size), Chunk = chunk });
     }
 
+    // Fuel tank: red body with white bands, a dome, a grey base ring and a white pipe running to the side.
+    private void BuildTank(Chunk chunk, float x, float z, float baseSize, float height)
+    {
+        var theme = chunk.Theme;
+        height = Mathf.Min(height, 5.4f);
+        var radius = baseSize * 0.42f;
+        var tank = Group("Storage tank", chunk.Root, new Vector3(x, 0f, z - chunk.StartZ));
+        Part(PrimitiveType.Cylinder, "Tank base", tank, new Vector3(0f, 0.15f, 0f), new Vector3(radius * 2.2f, 0.15f, radius * 2.2f), theme.StoneBase);
+        var body = height - 0.5f;
+        Part(PrimitiveType.Cylinder, "Tank body", tank, new Vector3(0f, 0.3f + body * 0.5f, 0f), new Vector3(radius * 2f, body * 0.5f, radius * 2f), theme.StoneMain);
+        for (var y = 0.9f; y < body; y += 1.3f)
+        {
+            Part(PrimitiveType.Cylinder, "Tank band", tank, new Vector3(0f, y, 0f), new Vector3(radius * 2.06f, 0.06f, radius * 2.06f), Color.white);
+        }
+
+        Part(PrimitiveType.Sphere, "Tank dome", tank, new Vector3(0f, 0.3f + body, 0f), new Vector3(radius * 2f, 0.7f, radius * 2f), theme.StoneBase);
+        Part(PrimitiveType.Cylinder, "Tank hatch", tank, new Vector3(0f, 0.3f + body + 0.32f, 0f), new Vector3(radius * 0.5f, 0.06f, radius * 0.5f), theme.StoneGlow, true);
+        Part(PrimitiveType.Cube, "Tank pipe", tank, new Vector3(radius + 0.7f, 0.2f, 0f), new Vector3(1.4f, 0.12f, 0.12f), Color.white);
+        AddBox(chunk, new Vector3(x, height * 0.5f, z), new Vector3(radius * 2f, height, radius * 2f));
+    }
+
+    // Brick bastion: a squat grey block with mortar courses and a lit slit.
+    private void BuildBastion(Chunk chunk, float x, float z, float baseSize, float height)
+    {
+        var theme = chunk.Theme;
+        height = Mathf.Min(height, 5.2f);
+        var width = baseSize * 0.9f;
+        var local = new Vector3(x, 0f, z - chunk.StartZ);
+        Part(PrimitiveType.Cube, "Bastion", chunk.Root, local + new Vector3(0f, height * 0.5f, 0f), new Vector3(width, height, width), theme.CastleStone);
+        Part(PrimitiveType.Cube, "Bastion cap", chunk.Root, local + new Vector3(0f, height + 0.1f, 0f), new Vector3(width + 0.3f, 0.2f, width + 0.3f), theme.CastleTrim);
+        Part(PrimitiveType.Cube, "Bastion slit", chunk.Root, local + new Vector3(0f, height * 0.6f, -width * 0.5f - 0.01f), new Vector3(0.18f, 0.8f, 0.04f), theme.WindowGlow, true);
+        AddBricks(chunk.Root, local.x, local.z - width * 0.5f - 0.01f, width, height, theme.CastleTrim);
+        AddBox(chunk, new Vector3(x, (height + 0.2f) * 0.5f, z), new Vector3(width + 0.3f, height + 0.2f, width + 0.3f));
+    }
+
+    // Mortar courses across a wall face: thin dark rows with staggered vertical joints.
+    private static void AddBricks(Transform root, float centerX, float faceZ, float width, float height, Color mortar)
+    {
+        var row = 0;
+        for (var y = 0.45f; y < height - 0.1f; y += 0.45f, row++)
+        {
+            Part(PrimitiveType.Cube, "Mortar", root, new Vector3(centerX, y, faceZ), new Vector3(width, 0.035f, 0.02f), mortar);
+            for (var jx = -width * 0.5f + (row % 2 == 0 ? 0.5f : 1.3f); jx < width * 0.5f; jx += 1.6f)
+            {
+                Part(PrimitiveType.Cube, "Mortar joint", root, new Vector3(centerX + jx, y - 0.225f, faceZ), new Vector3(0.035f, 0.45f, 0.02f), mortar);
+            }
+        }
+    }
+
     private void BuildPyramid(Chunk chunk, float x, float z, float baseSize, float height)
     {
+        if (chunk.Theme.Landmark == SkyfortLandmark.Tank)
+        {
+            BuildTank(chunk, x, z, baseSize, height);
+            return;
+        }
+
+        if (chunk.Theme.Landmark == SkyfortLandmark.Bastion)
+        {
+            BuildBastion(chunk, x, z, baseSize, height);
+            return;
+        }
+
         var root = chunk.Root;
         var local = new Vector3(x, 0f, z - chunk.StartZ);
         Part(PrimitiveType.Cube, "Pyramid plinth", root, local + new Vector3(0f, 0.1f, 0f), new Vector3(baseSize + 0.5f, 0.2f, baseSize + 0.5f), chunk.Theme.StoneBase);
@@ -1534,7 +1733,14 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         var localZ = z - chunk.StartZ;
         Part(PrimitiveType.Cube, "Curtain wall", root, new Vector3(centerX, height * 0.5f, localZ), new Vector3(width, height, 1.1f), chunk.Theme.CastleStone);
         Part(PrimitiveType.Cube, "Wall walk", root, new Vector3(centerX, height + 0.05f, localZ), new Vector3(width, 0.1f, 1.3f), chunk.Theme.CastleTrim);
-        Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), chunk.Theme.Neon, true);
+        if (chunk.Theme.Bricks)
+        {
+            AddBricks(root, centerX, localZ - 0.56f, width, height, chunk.Theme.CastleTrim);
+        }
+        else
+        {
+            Part(PrimitiveType.Cube, "Wall glow", root, new Vector3(centerX, height * 0.55f, localZ - 0.56f), new Vector3(width - 0.2f, 0.06f, 0.02f), chunk.Theme.Neon, true);
+        }
         Part(PrimitiveType.Cube, "Wall top neon", root, new Vector3(centerX, height + 0.1f, localZ - 0.67f), new Vector3(width, 0.05f, 0.05f), chunk.Theme.NeonAlt, true);
         for (var x = fromX + 0.35f; x < toX - 0.2f; x += 0.9f)
         {
@@ -1632,10 +1838,30 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         var root = chunk.Root;
         var mid = ChunkLength * 0.5f;
         Part(PrimitiveType.Cube, "Void plate", root, new Vector3(0f, -0.25f, mid), new Vector3(WallHalfWidth * 2f + 1f, 0.5f, ChunkLength), chunk.Theme.MidFloor);
-        for (var i = 0; i < 14; i++)
+        var colors = chunk.Theme.StarColors;
+        var starCount = colors != null ? 26 : 14;
+        for (var i = 0; i < starCount; i++)
         {
             var star = new Vector3(Random.Range(-WallHalfWidth, WallHalfWidth), 0.02f, Random.Range(0f, ChunkLength));
-            Part(PrimitiveType.Sphere, "Star", root, star, Vector3.one * Random.Range(0.05f, 0.14f), chunk.Theme.MidSpeck, chunk.Theme.MidSpecksGlow);
+            var color = colors != null ? colors[Random.Range(0, colors.Length)] : chunk.Theme.MidSpeck;
+            Part(PrimitiveType.Sphere, "Star", root, star, Vector3.one * Random.Range(0.05f, 0.14f), color, chunk.Theme.MidSpecksGlow);
+        }
+
+        // Distant planets and colored comet streaks lying on the void floor.
+        for (var i = 0; i < chunk.Theme.Planets; i++)
+        {
+            var size = Random.Range(0.5f, 1.1f);
+            var planet = new Vector3(Random.Range(-WallHalfWidth, WallHalfWidth), 0.05f, Random.Range(2f, ChunkLength - 2f));
+            Part(PrimitiveType.Sphere, "Planet", root, planet, new Vector3(size, size * 0.2f, size), chunk.Theme.PlanetColor, true);
+        }
+
+        if (colors != null)
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                var streak = new Vector3(Random.Range(-WallHalfWidth, WallHalfWidth), 0.03f, Random.Range(1f, ChunkLength - 1f));
+                Part(PrimitiveType.Cube, "Comet streak", root, streak, new Vector3(0.06f, 0.02f, Random.Range(0.7f, 1.4f)), colors[Random.Range(0, colors.Length)], true, new Vector3(0f, Random.Range(-35f, 35f), 0f));
+            }
         }
 
         for (var z = 0f; z < ChunkLength; z += 6f)
