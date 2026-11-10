@@ -1,6 +1,6 @@
 # Skyfort Strike — Unity 6 Feature Showcase
 
-![Skyfort Strike: the neon-trimmed fighter over the blue Skyfort deck, with pyramids and fuel tanks ahead](Screenshots/skyfort-16bit.png)
+![Skyfort Strike: the white fighter over the blue Skyfort deck, with turrets, fuel tanks and a power-up with its height marker](Screenshots/gameplay.png)
 
 **Play it in your browser:** https://jcallinan.github.io/Unity6VideoGames/
 
@@ -18,9 +18,15 @@ There are seven levels, each with its own look and obstacle mix. After the seven
 | 6 | **Brick Bulwark**: grey brick ramparts on an electric-cyan floor | Brick walls, keeps and bastions | Scrapyard Orbit |
 | 7 | **Refinery**: an industrial plain of banded fuel tanks | Fuel tanks, stacks, castle walls, force fields | Asteroid Belt |
 
-| Skyfort | Dune Ruins | Ice Citadel |
+Every theme, as seen in the title-screen demo reel:
+
+| 1. Skyfort | 2. Dune Ruins | 3. Ice Citadel | 4. Violet Bastion |
+|---|---|---|---|
+| ![Skyfort: blue deck with cyan neon grid and blue pyramids](Screenshots/theme-skyfort.png) | ![Dune Ruins: a sandstone deck under a burning sky](Screenshots/theme-dune-ruins.png) | ![Ice Citadel: pale ice spires on a frozen plain](Screenshots/theme-ice-citadel.png) | ![Violet Bastion: a violet deck with orange crystal pyramids](Screenshots/theme-violet-bastion.png) |
+
+| 5. Azure Causeway | 6. Brick Bulwark | 7. Refinery |
 |---|---|---|
-| ![Level 1, Skyfort: blue deck with cyan neon grid, pyramids with green neon edges](Screenshots/skyfort-16bit.png) | ![Level 2, Dune Ruins: sandstone deck with cyan neon lanes and glowing pyramids](Screenshots/dune-ruins-16bit.png) | ![Level 3, Ice Citadel: icy deck with crystal spires traced in cyan neon](Screenshots/ice-citadel-16bit.png) |
+| ![Azure Causeway: a royal-blue road lined with golden pillars](Screenshots/theme-azure-causeway.png) | ![Brick Bulwark: grey brick walls on an electric-cyan floor](Screenshots/theme-brick-bulwark.png) | ![Refinery: banded fuel tanks on an industrial blue plain](Screenshots/theme-refinery.png) |
 
 Levels 2 and 3 include a **cockpit run**: in the second half the camera blends from the isometric view into a first-person view from the ship's nose, with a green reticle, then blends back out.
 
@@ -32,9 +38,13 @@ Levels 2 and 3 include a **cockpit run**: in the second half the camera blends f
 | `Assets/Scenes/SkyfortStrike.unity` | The main game (this README's subject). **P**/**Esc** pauses, and **Q** from the pause or game over screen goes back to the title. |
 | `Assets/Scenes/SkyPlatformer.unity` | **Pixel Runner**, a Mario-style platformer (below). **Esc** returns to the title. |
 
+![The title screen: a glitching logo over the autopilot demo reel, with a camera readout and the Start Game and Pixel Runner buttons](Screenshots/title-screen.png)
+
 The whole of Skyfort Strike runs at 90% speed, and power-ups have a generous capture zone, a gentle magnet, and a glowing height marker with a ring on the deck so you can judge their altitude.
 
 ### Pixel Runner (platformer scene)
+
+![Pixel Runner: the side-scrolling section, with coins, a ? block row and a goomba](Screenshots/platformer.png)
 
 World 1-1 changes how you play as you go: **side scroller → first person → side scroller → top down → side scroller → flag**. Run with **A/D** (or arrows), jump with **Space**, **Shift** to run faster; in first person **W/S** walk and **A/D** strafe; top down uses **WASD**. Stomp goombas, bump **?** blocks from below, collect coins and reach the flag. Its level, player, enemies, lights and camera are built in code by `SkyPlatformer` when the scene starts (the scene just holds that one component), and the title scene builds its own world the same way (`SkyfortIntro`), so nothing needs generating in the Editor.
 
@@ -69,11 +79,11 @@ A display filter on the camera (`SkyfortRetroFilter` with `Assets/Shaders/Skyfor
 
 The same stretch of the Skyfort level in each mode:
 
-| 16-BIT (default) | CRT |
-|---|---|
-| ![16-BIT mode: crisp pixels with neon glow](Screenshots/skyfort-16bit.png) | ![CRT mode: scanlines and a gently curved screen](Screenshots/skyfort-crt.png) |
-| **ARCADE** | **MODERN** |
-| ![ARCADE mode: chunkier pixels and fewer colors](Screenshots/skyfort-arcade.png) | ![MODERN mode: no filter, full resolution](Screenshots/skyfort-modern.png) |
+| 16-BIT (default) | CRT | ARCADE |
+|---|---|---|
+| ![16-BIT mode: crisp pixels with neon glow](Screenshots/skyfort-16bit.png) | ![CRT mode: scanlines and a curved screen](Screenshots/skyfort-crt.png) | ![ARCADE mode: chunky pixels, dither and deep scanlines](Screenshots/skyfort-arcade.png) |
+| **ATARI** | **MONO LCD** | **MODERN** |
+| ![ATARI mode: limited flat colors with streaked rows](Screenshots/skyfort-atari.png) | ![MONO LCD mode: a four-shade green handheld look](Screenshots/skyfort-mono.png) | ![MODERN mode: no filter, full resolution](Screenshots/skyfort-modern.png) |
 
 The modes keep edges crisp with just a touch of softness, and only neon-bright light blooms. The HUD is drawn by UI Toolkit on top of the filtered image, so it stays sharp in every mode.
 
