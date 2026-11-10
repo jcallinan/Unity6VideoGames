@@ -62,10 +62,14 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
     private static readonly int MonoLightId = Shader.PropertyToID("_MonoLight");
     private static readonly int TintId = Shader.PropertyToID("_Tint");
     private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
+    private static readonly int CockpitId = Shader.PropertyToID("_Cockpit");
 
     private Material material;
 
     public Mode Current => mode;
+
+    // 0..1, driven by the game: how far the camera has blended into the cockpit view (adds a visor look on top of the mode).
+    public float Cockpit { get; set; }
 
     public static string Label(Mode value) => value switch
     {
@@ -154,6 +158,7 @@ public sealed class SkyfortRetroFilter : MonoBehaviour
         material.SetColor(MonoLightId, settings.MonoLight);
         material.SetFloat(TintId, settings.Tint);
         material.SetColor(TintColorId, settings.TintColor);
+        material.SetFloat(CockpitId, Cockpit);
         source.filterMode = FilterMode.Bilinear; // the soft blur relies on filtered sampling
         Graphics.Blit(source, destination, material);
     }

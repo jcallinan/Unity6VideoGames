@@ -24,7 +24,7 @@ public static class WebGLDocsBuild
 
         var options = new BuildPlayerOptions
         {
-            scenes = new[] { "Assets/Scenes/SkyfortStrike.unity" },
+            scenes = new[] { "Assets/Scenes/SkyfortIntro.unity", "Assets/Scenes/SkyfortStrike.unity", "Assets/Scenes/SkyPlatformer.unity" },
             locationPathName = outputPath,
             target = BuildTarget.WebGL,
             options = BuildOptions.None

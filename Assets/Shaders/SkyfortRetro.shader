@@ -40,13 +40,14 @@ Shader "Hidden/Skyfort/Retro"
             float4 _MonoLight;
             float _Tint;          // 0..1 blend toward _TintColor (phosphor / palette cast)
             float4 _TintColor;
+            float _Cockpit;       // 0..1 cockpit visor: extra lens curve, heavy vignette, cool tint, HUD scanlines
 
             static const float Bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
 
             float2 Curve(float2 uv)
             {
                 uv = uv * 2.0 - 1.0;
-                float2 offset = abs(uv.yx) * _Curvature;
+                float2 offset = abs(uv.yx) * (_Curvature + _Cockpit * 0.1);
                 uv += uv * offset * offset;
                 return uv * 0.5 + 0.5;
             }
@@ -142,7 +143,16 @@ Shader "Hidden/Skyfort/Retro"
 
                 float2 edge = uv * (1.0 - uv.yx);
                 float vignette = pow(saturate(edge.x * edge.y * 18.0), 0.2);
-                color *= lerp(1.0, vignette, _Vignette);
+                color *= lerp(1.0, vignette, saturate(_Vignette + _Cockpit * 0.55));
+
+                if (_Cockpit > 0.0)
+                {
+                    // Visor: a cool cast, fine horizontal HUD lines and darker corners.
+                    color *= lerp(float3(1, 1, 1), float3(0.82, 1.0, 1.12), _Cockpit);
+                    color *= 1.0 - _Cockpit * 0.1 * step(0.5, frac(i.uv.y * _ScreenParams.y * 0.25));
+                    float2 corner = abs(i.uv * 2.0 - 1.0);
+                    color *= 1.0 - _Cockpit * 0.45 * pow(saturate(max(corner.x, corner.y) - 0.55) / 0.45, 2.0);
+                }
 
                 return fixed4(color, 1.0);
             }

@@ -12,7 +12,11 @@ public sealed partial class SkyfortStrike
     private const float HitInvulnerability = 1.4f;
     private const float ShieldDuration = 10f;
     private const float SpreadDuration = 15f;
-    private const float PickupRadius = 1.5f;
+    private const float PickupReachSide = 2.2f;
+    private const float PickupReachHeight = 3f;
+    private const float PickupReachDepth = 2.6f;
+    private const float PickupMagnetRadius = 5f;
+    private const float PickupMagnetSpeed = 9f;
 
     private enum PickupKind { Repair, Fuel, Shield, Spread, ExtraShip }
 
@@ -160,6 +164,18 @@ public sealed partial class SkyfortStrike
         };
         position.y = Mathf.Clamp(position.y, MinAltitude + 0.5f, MaxAltitude - 1f);
         var instance = Instantiate(prefab, position, Quaternion.identity, chunk.Root);
+        // A glowing pole and a ring on the deck show how high the pickup floats.
+        var markerColor = kind switch
+        {
+            PickupKind.Repair => Lime,
+            PickupKind.Fuel => Gold,
+            PickupKind.Shield => Cyan,
+            PickupKind.Spread => NeonGreen,
+            _ => Bone
+        };
+        var height = position.y;
+        Part(PrimitiveType.Cube, "Altitude marker", instance.transform, new Vector3(0f, -height * 0.5f, 0f), new Vector3(0.04f, height, 0.04f), markerColor, true);
+        Ring("Ground ring", instance.transform, new Vector3(0f, -height + 0.05f, 0f), 0.6f, 0.04f, markerColor);
         pickups.Add(new Pickup { Kind = kind, Transform = instance.transform, Home = position, Phase = Random.Range(0f, 6f), Chunk = chunk });
     }
 
@@ -189,7 +205,19 @@ public sealed partial class SkyfortStrike
             var position = pickup.Home + Vector3.up * (Mathf.Sin(pickup.Phase * 2.4f) * 0.25f);
             pickup.Transform.position = position;
             pickup.Transform.rotation = Quaternion.Euler(0f, pickup.Phase * 110f, 0f);
-            if ((position - shipPosition).sqrMagnitude < PickupRadius * PickupRadius)
+            // Height is hard to judge in the isometric view, so the capture zone is a generous ellipsoid (taller than
+            // it is wide), and a pickup drifts toward the fighter once it is close.
+            var delta = position - shipPosition;
+            if (delta.sqrMagnitude < PickupMagnetRadius * PickupMagnetRadius)
+            {
+                pickup.Home = Vector3.MoveTowards(pickup.Home, shipPosition, PickupMagnetSpeed * Time.deltaTime);
+                delta = pickup.Home - shipPosition;
+            }
+
+            var nx = delta.x / PickupReachSide;
+            var ny = delta.y / PickupReachHeight;
+            var nz = delta.z / PickupReachDepth;
+            if (nx * nx + ny * ny + nz * nz < 1f)
             {
                 pickups.RemoveAt(i);
                 Destroy(pickup.Transform.gameObject);

@@ -24,10 +24,24 @@ There are seven levels, each with its own look and obstacle mix. After the seven
 
 Levels 2 and 3 include a **cockpit run**: in the second half the camera blends from the isometric view into a first-person view from the ship's nose, with a green reticle, then blends back out.
 
+## Three scenes
+
+| Scene | What it is |
+|---|---|
+| `Assets/Scenes/SkyfortIntro.unity` | The **title screen** (the first scene). A demo reel of the game: the fighter flies an endless autopilot run through every level theme, weaving around obstacles and shooting turrets, while the camera cuts between chase, orbit, fly-by, overhead and cockpit shots. A glitching logo, the techno title song (synthesized in code), and the display filter (**M**) are live. **Space** or the button starts the game; **2** or the other button opens the platformer. |
+| `Assets/Scenes/SkyfortStrike.unity` | The main game (this README's subject). **P**/**Esc** pauses, and **Q** from the pause or game over screen goes back to the title. |
+| `Assets/Scenes/SkyPlatformer.unity` | **Pixel Runner**, a Mario-style platformer (below). **Esc** returns to the title. |
+
+The whole of Skyfort Strike runs at 90% speed, and power-ups have a generous capture zone, a gentle magnet, and a glowing height marker with a ring on the deck so you can judge their altitude.
+
+### Pixel Runner (platformer scene)
+
+World 1-1 changes how you play as you go: **side scroller → first person → side scroller → top down → side scroller → flag**. Run with **A/D** (or arrows), jump with **Space**, **Shift** to run faster; in first person **W/S** walk and **A/D** strafe; top down uses **WASD**. Stomp goombas, bump **?** blocks from below, collect coins and reach the flag. Its level, player, enemies, lights and camera are built in code by `SkyPlatformer` when the scene starts (the scene just holds that one component), and the title scene builds its own world the same way (`SkyfortIntro`), so nothing needs generating in the Editor.
+
 ## Open and play
 
 1. Open this folder in Unity Editor **6000.3 or later**.
-2. Open `Assets/Scenes/SkyfortStrike.unity` and press **Play**.
+2. Open `Assets/Scenes/SkyfortIntro.unity` (the title screen, which links to the other two scenes) and press **Play**. To jump straight into a game, open `SkyfortStrike.unity` or `SkyPlatformer.unity` instead.
 
 | Action | Keys |
 |---|---|

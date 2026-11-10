@@ -114,6 +114,103 @@ public static class SkyfortAudio
         };
     }
 
+
+    // Just the title-screen song (used by the Intro scene). Same threading rules as LoadAsync: a worker thread where
+    // threads exist, the main thread on WebGL.
+    public static async Awaitable<AudioClip> LoadThemeAsync(CancellationToken token)
+    {
+#if !UNITY_WEBGL || UNITY_EDITOR
+        await Awaitable.BackgroundThreadAsync();
+#endif
+        var samples = Theme(new System.Random(1982));
+        await Awaitable.MainThreadAsync();
+        token.ThrowIfCancellationRequested();
+        return Clip("Theme", samples);
+    }
+    // Menu theme: an 8-bar, 128 BPM techno loop in A minor (Am - F - C - G, two bars each). A four-on-the-floor kick,
+    // off-beat open hats, claps on 2 and 4, a rolling 16th bass, an arpeggiated lead and a pad, with the melodic
+    // parts side-chained to the kick. The loop is seamless: it starts and ends on a kick.
+    private static float[] Theme(System.Random random)
+    {
+        const float bpm = 128f;
+        const int bars = 8;
+        var beat = 60f / bpm;
+        var bar = beat * 4f;
+        var sixteenth = beat / 4f;
+        var length = bar * bars;
+        var roots = new[] { 55f, 43.65f, 65.41f, 49f };
+        var chords = new[]
+        {
+            new[] { 220f, 261.63f, 329.63f },
+            new[] { 174.61f, 220f, 261.63f },
+            new[] { 261.63f, 329.63f, 392f },
+            new[] { 196f, 246.94f, 293.66f }
+        };
+        var arpPattern = new[] { 0, 2, 1, 2, 0, 2, 1, 2 };
+        var previousNoise = 0f;
+        return Synth(length, t =>
+        {
+            var barIndex = Mathf.Min((int)(t / bar), bars - 1);
+            var inBar = t - barIndex * bar;
+            var beatIndex = (int)(inBar / beat);
+            var beatTime = inBar - beatIndex * beat;
+            var step = (int)(inBar / sixteenth);
+            var stepTime = inBar - step * sixteenth;
+            var chordIndex = barIndex / 2;
+            var chord = chords[chordIndex];
+            var duck = 1f - 0.9f * Mathf.Exp(-beatTime * 10f);
+
+            var n = (float)(random.NextDouble() * 2.0 - 1.0);
+            var highpassed = n - previousNoise;
+            previousNoise = n;
+
+            // Kick: a sine dropping from ~155 Hz to 45 Hz, with a short click.
+            var kickPhase = 45f * beatTime + 110f * (1f - Mathf.Exp(-28f * beatTime)) / 28f;
+            var kick = Mathf.Sin(2f * Mathf.PI * kickPhase) * Mathf.Exp(-beatTime * 9f) * 0.95f
+                       + n * Mathf.Exp(-beatTime * 400f) * 0.15f;
+
+            // Hats: open on every off-beat, a faint tick on every 16th.
+            var offbeat = beatTime - beat * 0.5f;
+            var hat = offbeat >= 0f ? highpassed * Mathf.Exp(-offbeat * 24f) * 0.24f : 0f;
+            hat += highpassed * Mathf.Exp(-stepTime * 70f) * 0.06f;
+
+            // Clap on beats 2 and 4.
+            var clap = beatIndex % 2 == 1
+                ? (n * 0.5f + Mathf.Sin(2f * Mathf.PI * 190f * t) * 0.25f) * Mathf.Exp(-beatTime * 16f) * 0.3f
+                : 0f;
+
+            // Bass: rolling on the last two 16ths of each beat, jumping an octave on the final one.
+            var bass = 0f;
+            var rootNote = roots[chordIndex];
+            if (step % 4 >= 2)
+            {
+                var f = step % 4 == 3 ? rootNote * 2f : rootNote;
+                var env = Mathf.Min(stepTime / 0.003f, 1f) * Mathf.Exp(-stepTime * 13f);
+                bass = (Saw(f, t) * 0.32f + Mathf.Sin(2f * Mathf.PI * f * t) * 0.35f) * env;
+            }
+
+            // Lead arpeggio on every 16th, swelling across the loop.
+            var arpNote = chord[arpPattern[step % 8]] * (step % 8 >= 6 ? 2f : 1f);
+            var arpEnv = Mathf.Min(stepTime / 0.002f, 1f) * Mathf.Exp(-stepTime * 15f);
+            var swell = 0.5f + 0.5f * Mathf.Sin(Mathf.PI * t / length);
+            var arp = Square(arpNote, t) * arpEnv * 0.11f * swell;
+
+            // Pad: a soft chord that fades in and out around each chord change.
+            var chordTime = t - chordIndex * 2f * bar;
+            var padEnv = Mathf.Min(chordTime / 0.4f, 1f) * Mathf.Min((2f * bar - chordTime) / 0.15f, 1f);
+            var pad = 0f;
+            foreach (var note in chord)
+            {
+                pad += Mathf.Sin(2f * Mathf.PI * note * 0.5f * t);
+            }
+
+            pad *= 0.045f * padEnv;
+
+            var mix = kick + hat + clap + (bass + arp + pad) * duck;
+            return (float)System.Math.Tanh(mix * 1.15f) * 0.85f;
+        }, false);
+    }
+
     private static float[] Beep(float frequency) => Synth(0.22f, t =>
     {
         var env = Mathf.Min(t / 0.008f, 1f) * Mathf.Exp(-9f * t);

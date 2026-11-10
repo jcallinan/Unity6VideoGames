@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 using static SkyfortModels;
 using Random = UnityEngine.Random;
@@ -23,6 +24,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     private const float SpawnAhead = 120f;
     private const float DespawnBehind = 30f;
     private const float BaseSpeed = 13f;
+    // The whole game runs at 90% speed (Time.timeScale), so everything slows down evenly.
+    private const float GameSpeed = 0.9f;
     private const float FuelMax = 100f;
     private const float FuelDrain = 3f;
     private const float FuelRefill = 32f;
@@ -170,11 +173,6 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         // Animate a copy so play mode never edits the material asset itself.
         fieldMaterial = forceFieldMaterial != null ? new Material(forceFieldMaterial) : null;
         QualitySettings.shadowDistance = 90f;
-        if (shipModel != null)
-        {
-            SkyfortFighter.Build(shipModel);
-        }
-
         if (view != null)
         {
             isoRotation = view.transform.rotation;
@@ -253,10 +251,24 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         }
     }
 
+    // Back to the title screen (the Intro scene).
+    private void ExitToTitle()
+    {
+        Time.timeScale = 1f;
+        AudioListener.pause = false;
+        SceneManager.LoadScene("SkyfortIntro");
+    }
+
     private void Update()
     {
         if (phase == Phase.Loading)
         {
+            return;
+        }
+
+        if ((paused || phase == Phase.GameOver) && Input.GetKeyDown(KeyCode.Q))
+        {
+            ExitToTitle();
             return;
         }
 
@@ -275,8 +287,8 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.Escape))
         {
             paused = !paused;
-            Time.timeScale = paused ? 0f : 1f;
-            hud.Banner = paused ? "PAUSED" : (phase == Phase.Playing ? "" : hud.Banner);
+            Time.timeScale = paused ? 0f : GameSpeed;
+            hud.Banner = paused ? "PAUSED  -  Q: title screen" : (phase == Phase.Playing ? "" : hud.Banner);
             AudioListener.pause = paused;
         }
 
@@ -345,6 +357,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
         var wantCockpit = aheadChunk != null && aheadChunk.FirstPerson;
         fpBlend = Mathf.MoveTowards(fpBlend, wantCockpit ? 1f : 0f, Time.deltaTime / 1.2f);
         var t = fpBlend * fpBlend * (3f - 2f * fpBlend);
+        retroFilter.Cockpit = t;
 
         if (wantCockpit != cockpitActive)
         {
@@ -426,7 +439,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
     {
         var id = ++runId;
         paused = false;
-        Time.timeScale = 1f;
+        Time.timeScale = GameSpeed;
         AudioListener.pause = false;
         level = 1;
         score = 0;
@@ -501,7 +514,7 @@ public sealed partial class SkyfortStrike : MonoBehaviour
                 SaveHighScore();
                 sfx.PlayOneShot(sounds.GameOver);
                 hud.Banner = "GAME OVER";
-                hud.SubBanner = "Press SPACE to fly again";
+                hud.SubBanner = "Press SPACE to fly again, Q for the title screen";
                 engine.volume = 0f;
                 return;
             }

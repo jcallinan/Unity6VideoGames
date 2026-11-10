@@ -1,11 +1,13 @@
 using UnityEngine;
 using static SkyfortModels;
 
-// The player's strike fighter, built from primitives and faceted meshes when the game starts. It replaces whatever
+// The player's strike fighter, built from primitives and faceted meshes whenever the component loads (in the Editor and
+// at runtime, so the scene shows the real ship). It replaces whatever
 // parts the scene's "Fighter model" object holds. Styling: a white swept-wing jet with a black radome tip and tail
 // fins, a red roundel and wing chevrons, yellow patches, a dark glass canopy, wing-root intakes, underwing tanks and
 // grey engine nacelles. The model points along +Z.
-public static class SkyfortFighter
+[ExecuteAlways]
+public sealed class SkyfortFighter : MonoBehaviour
 {
     private static readonly Color White = new(0.93f, 0.93f, 0.95f);
     private static readonly Color Grey = new(0.62f, 0.65f, 0.72f);
@@ -15,11 +17,16 @@ public static class SkyfortFighter
     private static readonly Color Yellow = new(1f, 0.78f, 0.08f);
     private static readonly Color Glass = new(0.16f, 0.3f, 0.45f);
 
+    private void OnEnable()
+    {
+        Build(transform);
+    }
+
     public static void Build(Transform model)
     {
-        foreach (Transform child in model)
+        for (var i = model.childCount - 1; i >= 0; i--)
         {
-            Object.Destroy(child.gameObject);
+            DestroyImmediate(model.GetChild(i).gameObject);
         }
 
         // Fuselage: main body, a wider rear glove between the engines, and a dark dorsal deck.
@@ -106,6 +113,18 @@ public static class SkyfortFighter
 
         // The ground shadow is a separate object straight below the ship, so the model casts none of its own.
         DisableShadows(model);
+
+        // In the Editor the parts are a preview rebuilt on load, so keep them out of the saved scene.
+        if (!Application.isPlaying)
+        {
+            foreach (var t in model.GetComponentsInChildren<Transform>(true))
+            {
+                if (t != model)
+                {
+                    t.gameObject.hideFlags = HideFlags.DontSaveInEditor | HideFlags.NotEditable;
+                }
+            }
+        }
     }
 
     // A four-sided wedge (the pyramid mesh turned to face +Z). Size is base width, length, base height.
